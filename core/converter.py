@@ -13,10 +13,38 @@ class DocumentConverter:
     }
 
     def __init__(self, soffice_path=None):
-        if soffice_path and os.path.exists(soffice_path):
-            self.soffice = soffice_path
-        else:
-            self.soffice = shutil.which('soffice') or '/usr/bin/soffice'
+        self.soffice = self._find_soffice(soffice_path)
+
+    def _find_soffice(self, custom_path=None):
+        if custom_path and os.path.exists(custom_path):
+            return custom_path
+
+        app_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+        portable_paths = [
+            os.path.join(app_dir, 'libreoffice_portable', 'program', 'soffice'),
+            os.path.join(app_dir, 'libreoffice_portable', 'soffice'),
+        ]
+        for p in portable_paths:
+            if os.path.exists(p):
+                return p
+
+        system_path = shutil.which('soffice')
+        if system_path:
+            return system_path
+
+        system_paths = [
+            '/usr/bin/soffice',
+            '/usr/lib/libreoffice/program/soffice',
+            '/opt/libreoffice/program/soffice',
+        ]
+        for p in system_paths:
+            if os.path.exists(p):
+                return p
+
+        raise RuntimeError(
+            '未找到 LibreOffice。请安装 libreoffice-core 或运行 bundle_libreoffice.sh'
+        )
 
     def can_convert(self, filepath):
         ext = os.path.splitext(filepath)[1].lower()
