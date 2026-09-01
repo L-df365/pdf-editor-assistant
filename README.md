@@ -14,30 +14,31 @@
 
 ## Quick Start
 
-### Option 1: Docker (Recommended — Includes LibreOffice)
+### Option 1: Direct Install (Recommended if you have LibreOffice)
 
 ```bash
-docker build -t pdf-editor .
-docker run -it --rm \
-  -v /tmp/.X11-unix:/tmp/.X11-unix \
-  -e DISPLAY=$DISPLAY \
-  -v $(pwd):/workspace \
-  pdf-editor
-```
-
-### Option 2: Manual Install
-
-```bash
-# Install system dependency
-sudo apt install libreoffice-core  # Debian/Ubuntu
-# or
-sudo dnf install libreoffice-core  # Fedora
+# Install LibreOffice (if not installed)
+sudo apt install libreoffice-core libreoffice-writer libreoffice-calc
 
 # Install Python dependencies
 pip install -r requirements.txt
 
 # Run
 python main.py
+```
+
+### Option 2: Docker (LibreOffice built-in, no system install needed)
+
+```bash
+# Build image (first time only)
+docker build -t pdf-editor .
+
+# Run with GUI
+docker run -it --rm \
+  -e DISPLAY=$DISPLAY \
+  -v /tmp/.X11-unix:/tmp/.X11-unix \
+  -v $(pwd):/workspace \
+  pdf-editor
 ```
 
 ### Option 3: One-click Setup
@@ -79,6 +80,7 @@ python main.py document.pdf
 | Open Source | ✅ | ✅ | ✅ | ✅ | ❌ |
 | Free | ✅ | ✅ | ✅ | ✅ | ❌ |
 | Lightweight | ✅ <1MB | ~5MB | ~1MB | ~2MB | ~200MB |
+| Docker Support | ✅ | ❌ | ❌ | ❌ | ❌ |
 
 ## Why Not Just Use Foxit/WPS?
 

@@ -1,0 +1,23 @@
+# *DO NOT* CHANGE THIS FILE. IT ONLY TAKES THE SETTINGS FROM
+# /etc/libreoffice/sofficerc. CHANGE THAT FILE IF YOU
+# REALLY WANT TO CHANGE SOMETHING.
+FHS_CONFIG_FILE=file:///etc/libreoffice/sofficerc
+
+[Bootstrap]
+CrashDirectory=${$FHS_CONFIG_FILE:Bootstrap:CrashDirectory}
+CrashDumpEnable=${$FHS_CONFIG_FILE:Bootstrap:CrashDumpEnable}
+HideEula=${$FHS_CONFIG_FILE:Bootstrap:HideEula}
+Logo=${$FHS_CONFIG_FILE:Bootstrap:Logo}
+NativeProgress=${$FHS_CONFIG_FILE:Bootstrap:NativeProgress}
+ProgressBarColor=${$FHS_CONFIG_FILE:Bootstrap:ProgressBarColor}
+ProgressFrameColor=${$FHS_CONFIG_FILE:Bootstrap:ProgressFrameColor}
+ProgressPosition=${$FHS_CONFIG_FILE:Bootstrap:ProgressPosition}
+ProgressSize=${$FHS_CONFIG_FILE:Bootstrap:ProgressSize}
+ProgressTextBaseline=${$FHS_CONFIG_FILE:Bootstrap:ProgressTextBaseline}
+ProgressTextColor=${$FHS_CONFIG_FILE:Bootstrap:ProgressTextColor}
+SecureUserConfig=${$FHS_CONFIG_FILE:Bootstrap:SecureUserConfig}
+SecureUserConfigCompress=${$FHS_CONFIG_FILE:Bootstrap:SecureUserConfigCompress}
+SecureUserConfigExtensions=${$FHS_CONFIG_FILE:Bootstrap:SecureUserConfigExtensions}
+SecureUserConfigMode=${$FHS_CONFIG_FILE:Bootstrap:SecureUserConfigMode}
+SecureUserConfigNumCopies=${$FHS_CONFIG_FILE:Bootstrap:SecureUserConfigNumCopies}
+URE_BOOTSTRAP=${ORIGIN}/fundamentalrc

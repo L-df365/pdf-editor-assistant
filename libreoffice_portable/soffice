@@ -1,0 +1,5 @@
+#!/bin/bash
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+export URE_BOOTSTRAP="file://$SCRIPT_DIR/program/fundamentalrc"
+export HOME="${HOME:-/tmp}"
+exec "$SCRIPT_DIR/program/soffice.bin" --norestore "$@"

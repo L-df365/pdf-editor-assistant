@@ -19,16 +19,6 @@ class DocumentConverter:
         if custom_path and os.path.exists(custom_path):
             return custom_path
 
-        app_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-
-        portable_paths = [
-            os.path.join(app_dir, 'libreoffice_portable', 'program', 'soffice'),
-            os.path.join(app_dir, 'libreoffice_portable', 'soffice'),
-        ]
-        for p in portable_paths:
-            if os.path.exists(p):
-                return p
-
         system_path = shutil.which('soffice')
         if system_path:
             return system_path
@@ -39,6 +29,15 @@ class DocumentConverter:
             '/opt/libreoffice/program/soffice',
         ]
         for p in system_paths:
+            if os.path.exists(p):
+                return p
+
+        app_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        portable_paths = [
+            os.path.join(app_dir, 'libreoffice_portable', 'program', 'soffice'),
+            os.path.join(app_dir, 'libreoffice_portable', 'soffice'),
+        ]
+        for p in portable_paths:
             if os.path.exists(p):
                 return p
 

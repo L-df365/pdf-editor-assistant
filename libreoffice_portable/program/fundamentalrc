@@ -1,0 +1,10 @@
+[Bootstrap]
+BRAND_BASE_DIR=file:///home/user/pdf-insert/libreoffice_portable
+BRAND_INI_DIR=file:///home/user/pdf-insert/libreoffice_portable/program
+BRAND_SHARE_RESOURCE_SUBDIR=program/resource
+BRAND_SHARE_SUBDIR=share
+CONFIGURATION_LAYERS=xcsxcu:/home/user/pdf-insert/libreoffice_portable/share/registry res:/home/user/pdf-insert/libreoffice_portable/share/registry bundledext:/home/user/pdf-insert/libreoffice_portable/program/lounorc
+LO_JAVA_DIR=/home/user/pdf-insert/libreoffice_portable/program/classes
+LO_LIB_DIR=/home/user/pdf-insert/libreoffice_portable/program
+URE_BIN_DIR=/home/user/pdf-insert/libreoffice_portable/program
+URE_MORE_JAVA_CLASSPATH_URLS=
