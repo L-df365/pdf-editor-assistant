@@ -14,7 +14,17 @@
 
 ## Quick Start
 
-### Option 1: Direct Install (Recommended if you have LibreOffice)
+### Option 1: Docker (Recommended, all-in-one)
+
+```bash
+# Build image (first time only)
+docker build -t pdf-editor-assistant .
+
+# Run with GUI
+./start.sh
+```
+
+### Option 2: Direct Install (Requires LibreOffice on system)
 
 ```bash
 # Install LibreOffice (if not installed)
@@ -27,27 +37,6 @@ pip install -r requirements.txt
 python main.py
 ```
 
-### Option 2: Docker (LibreOffice built-in, no system install needed)
-
-```bash
-# Build image (first time only)
-docker build -t pdf-editor .
-
-# Run with GUI
-docker run -it --rm \
-  -e DISPLAY=$DISPLAY \
-  -v /tmp/.X11-unix:/tmp/.X11-unix \
-  -v $(pwd):/workspace \
-  pdf-editor
-```
-
-### Option 3: One-click Setup
-
-```bash
-chmod +x setup.sh
-./setup.sh
-```
-
 ## Usage
 
 ```bash
@@ -56,6 +45,9 @@ python main.py
 
 # Open specific file
 python main.py document.pdf
+
+# Docker with file
+./start.sh document.pdf
 ```
 
 ### Keyboard Shortcuts
@@ -95,8 +87,10 @@ python main.py document.pdf
 ```
 pdf-editor-assistant/
 ├── main.py                # Entry point
-├── setup.sh               # One-click setup
-├── Dockerfile             # Docker support
+├── start.sh               # Docker launcher
+├── setup.sh               # One-click setup (system install)
+├── Dockerfile             # Docker image with LibreOffice
+├── docker-compose.yml     # Docker Compose config
 ├── requirements.txt       # Python dependencies
 ├── core/
 │   ├── converter.py       # LibreOffice conversion wrapper
@@ -112,7 +106,7 @@ pdf-editor-assistant/
 | Component | Technology |
 |-----------|------------|
 | GUI | tkinter |
-| PDF Rendering | PyMuPDF (fitz) |
+| PDF Rendering | PyMuPDF |
 | File Conversion | LibreOffice headless |
 | Image Processing | Pillow |
 
