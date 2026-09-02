@@ -12,30 +12,15 @@
 - 📝 **Insert Any File** — Word (.docx), Excel (.xlsx), Images (.png/.jpg) → Auto-convert to PDF → Insert at any position
 - 🔄 **Page Operations** — Rotate, delete, move pages
 - 👁️ **Real-time Preview** — Fit-to-width / 100% zoom modes
-- 💾 **Save** — Save / Save As with incremental support
+- 💾 **Save** — Save / Save As
 
 ## Quick Start
-
-### Prerequisites
-
-- Git
-- Docker
-
-> 💡 **China users**: If `git clone` is slow, use a mirror:
-> ```bash
-> git clone https://ghfast.top/https://github.com/L-df365/pdf-editor-assistant.git
-> # or
-> git clone https://mirror.ghproxy.com/https://github.com/L-df365/pdf-editor-assistant.git
-> ```
 
 ### One-Click Install (Recommended)
 
 ```bash
-# Clone the repository
 git clone https://github.com/L-df365/pdf-editor-assistant.git
 cd pdf-editor-assistant
-
-# Run installer
 sudo ./install.sh
 ```
 
@@ -53,36 +38,9 @@ sudo ./uninstall.sh
 ### Run Without Installing
 
 ```bash
-./start.sh
+pip3 install -r requirements.txt
+python3 main.py
 ```
-
-### Option 3: One-click Setup
-
-```bash
-chmod +x setup.sh
-./setup.sh
-```
-
-## Usage
-
-```bash
-# Open editor
-python main.py
-
-# Open specific file
-python main.py document.pdf
-
-# Docker with file
-./start.sh document.pdf
-```
-
-### Keyboard Shortcuts
-
-| Shortcut | Action |
-|----------|--------|
-| `Ctrl+O` | Open PDF |
-| `Ctrl+S` | Save |
-| `Ctrl+Shift+S` | Save As |
 
 ## Comparison with Existing Tools
 
@@ -96,15 +54,13 @@ python main.py document.pdf
 | Delete Pages | ✅ | ✅ | ❌ | ✅ | ✅ |
 | Fit-to-width Preview | ✅ | ❌ | ❌ | ❌ | ✅ |
 | Open Source | ✅ | ✅ | ✅ | ✅ | ❌ |
-| Free | ✅ | ✅ | ✅ | ✅ | ❌ |
-| Lightweight | ✅ <1MB | ~5MB | ~1MB | ~2MB | ~200MB |
-| Docker Support | ✅ | ❌ | ❌ | ❌ | ❌ |
+| Install Size | ~120MB | ~5MB | ~1MB | ~2MB | ~200MB |
 
 ## Why Not Just Use Foxit/WPS?
 
 1. **Privacy** — Your documents never leave your machine
 2. **Free** — No license fees, no subscriptions
-3. **Lightweight** — <1MB vs 200MB+
+3. **Lightweight** — ~120MB vs 200MB+
 4. **Automatable** — Can be integrated into workflows via CLI
 5. **Customizable** — Modify to fit your specific needs
 
@@ -113,10 +69,8 @@ python main.py document.pdf
 ```
 pdf-editor-assistant/
 ├── main.py              # Entry point
-├── start.sh             # Docker launcher
-├── setup.sh             # One-click setup (system install)
-├── Dockerfile           # Docker image with LibreOffice
-├── docker-compose.yml   # Docker Compose config
+├── install.sh           # One-click installer
+├── uninstall.sh         # Uninstaller
 ├── requirements.txt     # Python dependencies
 ├── core/
 │   ├── converter.py     # LibreOffice conversion wrapper

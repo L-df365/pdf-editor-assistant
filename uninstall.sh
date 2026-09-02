@@ -6,7 +6,6 @@ sudo rm -f /usr/local/bin/pdf-editor
 sudo rm -f /usr/share/applications/pdf-editor.desktop
 rm -f ~/.local/share/applications/pdf-editor.desktop
 
-# 更新桌面数据库
 update-desktop-database /usr/share/applications/ 2>/dev/null || true
 update-desktop-database ~/.local/share/applications/ 2>/dev/null || true
 
