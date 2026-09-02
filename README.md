@@ -18,9 +18,8 @@
 
 ### Prerequisites
 
-- Python 3.6+
 - Git
-- Docker (for Docker method) or LibreOffice (for local method)
+- Docker
 
 > 💡 **China users**: If `git clone` is slow, use a mirror:
 > ```bash
@@ -29,62 +28,33 @@
 > git clone https://mirror.ghproxy.com/https://github.com/L-df365/pdf-editor-assistant.git
 > ```
 
-### Option 1: Docker (Recommended, all-in-one)
+### One-Click Install (Recommended)
 
 ```bash
-# Install Docker (if not installed)
-# Ubuntu/Debian:
-sudo apt install docker.io -y
-sudo usermod -aG docker $USER
-# Log out and back in for group change to take effect
-
 # Clone the repository
 git clone https://github.com/L-df365/pdf-editor-assistant.git
 cd pdf-editor-assistant
 
-# Build Docker image (first time only)
-docker build -t pdf-editor-assistant .
+# Run installer
+sudo ./install.sh
+```
 
-# Run
+After installation:
+- ✅ "PDF Editor Assistant" appears in application menu
+- ✅ Right-click PDF → Open with → PDF Editor Assistant
+- ✅ Command line: `pdf-editor file.pdf`
+
+### Uninstall
+
+```bash
+sudo ./uninstall.sh
+```
+
+### Run Without Installing
+
+```bash
 ./start.sh
 ```
-
-> 💡 **China users**: Docker build slow? Add mirror:
-> ```bash
-> sudo mkdir -p /etc/docker
-> sudo tee /etc/docker/daemon.json <<-'EOF'
-> {
->   "registry-mirrors": [
->     "https://docker.1ms.run",
->     "https://docker.xuanyuan.me"
->   ]
-> }
-> EOF
-> sudo systemctl daemon-reload
-> sudo systemctl restart docker
-> ```
-
-### Option 2: Direct Install (Requires LibreOffice on system)
-
-```bash
-# Install dependencies (if not installed)
-sudo apt install git python3 python3-pip libreoffice-core libreoffice-writer libreoffice-calc -y
-
-# Clone the repository
-git clone https://github.com/L-df365/pdf-editor-assistant.git
-cd pdf-editor-assistant
-
-# Install Python dependencies
-pip3 install -r requirements.txt
-
-# Run
-python3 main.py
-```
-
-> 💡 **China users**: pip slow? Use Tsinghua mirror:
-> ```bash
-> pip3 install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
-> ```
 
 ### Option 3: One-click Setup
 

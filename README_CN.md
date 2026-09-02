@@ -16,9 +16,8 @@
 
 ### 前置依赖
 
-- Python 3.6+
 - Git
-- Docker（Docker 方式需要）或 LibreOffice（本地方式需要）
+- Docker
 
 > 💡 **国内用户**：如果 `git clone` 很慢，可以用镜像站：
 > ```bash
@@ -27,62 +26,33 @@
 > git clone https://mirror.ghproxy.com/https://github.com/L-df365/pdf-editor-assistant.git
 > ```
 
-### 方式一：Docker（推荐，无需安装 LibreOffice）
+### 一键安装（推荐）
 
 ```bash
-# 安装 Docker（如果未安装）
-# Ubuntu/Debian:
-sudo apt install docker.io -y
-sudo usermod -aG docker $USER
-# 重新登录终端后生效
-
 # 克隆仓库
 git clone https://github.com/L-df365/pdf-editor-assistant.git
 cd pdf-editor-assistant
 
-# 构建 Docker 镜像（首次需要）
-docker build -t pdf-editor-assistant .
+# 运行安装脚本
+sudo ./install.sh
+```
 
-# 运行
+安装后：
+- ✅ 开始菜单出现「PDF 内嵌编辑助手」
+- ✅ 右键 PDF 文件 → 打开方式 → PDF 内嵌编辑助手
+- ✅ 命令行运行 `pdf-editor 文件.pdf`
+
+### 卸载
+
+```bash
+sudo ./uninstall.sh
+```
+
+### 手动运行（不安装）
+
+```bash
 ./start.sh
 ```
-
-> 💡 **国内用户**：Docker 构建慢？配置镜像加速：
-> ```bash
-> sudo mkdir -p /etc/docker
-> sudo tee /etc/docker/daemon.json <<-'EOF'
-> {
->   "registry-mirrors": [
->     "https://docker.1ms.run",
->     "https://docker.xuanyuan.me"
->   ]
-> }
-> EOF
-> sudo systemctl daemon-reload
-> sudo systemctl restart docker
-> ```
-
-### 方式二：本地安装（需要系统已安装 LibreOffice）
-
-```bash
-# 安装依赖（如果未安装）
-sudo apt install git python3 python3-pip libreoffice-core libreoffice-writer libreoffice-calc -y
-
-# 克隆仓库
-git clone https://github.com/L-df365/pdf-editor-assistant.git
-cd pdf-editor-assistant
-
-# 安装 Python 依赖
-pip3 install -r requirements.txt
-
-# 运行
-python3 main.py
-```
-
-> 💡 **国内用户**：pip 安装慢？用清华镜像：
-> ```bash
-> pip3 install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
-> ```
 
 ### 方式三：一键安装脚本
 
