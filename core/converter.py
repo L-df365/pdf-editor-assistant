@@ -42,7 +42,7 @@ class DocumentConverter:
                 return p
 
         raise RuntimeError(
-            '未找到 LibreOffice。请安装 libreoffice-core 或运行 bundle_libreoffice.sh'
+            '未找到 LibreOffice。请安装 libreoffice-core 或使用 Docker 版本'
         )
 
     def can_convert(self, filepath):

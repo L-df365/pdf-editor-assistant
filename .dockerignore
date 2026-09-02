@@ -1,0 +1,16 @@
+.git
+.gitignore
+*.md
+LICENSE
+docker-compose.yml
+start.sh
+setup.sh
+__pycache__
+*.pyc
+*.pyo
+*.tmp
+*.tmp.pdf
+.DS_Store
+Thumbs.db
+venv
+.venv

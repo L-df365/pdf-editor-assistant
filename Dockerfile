@@ -25,7 +25,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # Make scripts executable
-RUN chmod +x main.py setup.sh
+RUN chmod +x main.py
 
 ENTRYPOINT ["python"]
 CMD ["main.py"]
