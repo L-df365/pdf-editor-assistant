@@ -8,6 +8,8 @@ from gui.thumbnail_panel import ThumbnailPanel
 from gui.preview_panel import PreviewPanel
 
 
+HOME_DIR = '/home/user' if os.path.isdir('/home/user') else HOME_DIR
+
 FILETYPES = [
     ('所有支持的文件',
      '*.pdf *.docx *.doc *.xlsx *.xls *.pptx *.ppt '
@@ -151,7 +153,7 @@ class MainWindow:
     def open_pdf(self):
         path = filedialog.askopenfilename(
             title='打开 PDF 文件',
-            initialdir=os.path.expanduser('~'),
+            initialdir=HOME_DIR,
             filetypes=[('PDF 文件', '*.pdf'), ('所有文件', '*.*')])
         if not path:
             return
@@ -175,7 +177,7 @@ class MainWindow:
             return
         path = filedialog.asksaveasfilename(
             title='另存为',
-            initialdir=os.path.expanduser('~'),
+            initialdir=HOME_DIR,
             defaultextension='.pdf',
             filetypes=[('PDF 文件', '*.pdf')])
         if not path:
@@ -248,7 +250,7 @@ class MainWindow:
     def _on_insert_after(self, page_num):
         path = filedialog.askopenfilename(
             title='选择要插入的文件',
-            initialdir=os.path.expanduser('~'),
+            initialdir=HOME_DIR,
             filetypes=FILETYPES)
         if not path:
             return
@@ -257,7 +259,7 @@ class MainWindow:
     def insert_file_dialog(self):
         path = filedialog.askopenfilename(
             title='选择要插入的文件',
-            initialdir=os.path.expanduser('~'),
+            initialdir=HOME_DIR,
             filetypes=FILETYPES)
         if not path:
             return
@@ -268,7 +270,7 @@ class MainWindow:
     def insert_file_at(self, position):
         path = filedialog.askopenfilename(
             title='选择要插入的文件',
-            initialdir=os.path.expanduser('~'),
+            initialdir=HOME_DIR,
             filetypes=FILETYPES)
         if not path:
             return
