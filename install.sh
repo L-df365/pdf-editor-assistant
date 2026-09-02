@@ -34,18 +34,23 @@ echo -e "  安装 Python3 和 LibreOffice..."
 if [ "$PKG" = "apt-get" ]; then
     sudo apt-get update -qq
     sudo apt-get install -y -qq python3 python3-tk python3-pip libreoffice-core libreoffice-writer libreoffice-calc
+    # 隐藏 LibreOffice 开始菜单项（只用内核，不要 UI）
+    sudo rm -f /usr/share/applications/libreoffice*.desktop
+    sudo update-desktop-database /usr/share/applications/ 2>/dev/null || true
 elif [ "$PKG" = "dnf" ]; then
     sudo dnf install -y python3 python3-tkinter python3-pip libreoffice-core libreoffice-writer libreoffice-calc
+    sudo rm -f /usr/share/applications/libreoffice*.desktop
 elif [ "$PKG" = "pacman" ]; then
     sudo pacman -S --noconfirm python python-tk python-pip libreoffice-fresh
+    sudo rm -f /usr/share/applications/libreoffice*.desktop
 fi
 echo -e "${GREEN}  系统依赖已安装${NC}"
 
 # 安装 Python 依赖
 echo -e "  安装 Python 包..."
-pip3 install -q -r "$SCRIPT_DIR/requirements.txt" 2>/dev/null || \
+pip3 install -q -r "$SCRIPT_DIR/requirements.txt" -i https://pypi.tuna.tsinghua.edu.cn/simple 2>/dev/null || \
 pip3 install -q -r "$SCRIPT_DIR/requirements.txt" --break-system-packages 2>/dev/null || \
-$PYTHON -m pip install -q -r "$SCRIPT_DIR/requirements.txt"
+pip3 install -q -r "$SCRIPT_DIR/requirements.txt"
 echo -e "${GREEN}  Python 依赖已安装${NC}"
 
 # 安装程序
