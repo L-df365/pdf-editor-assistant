@@ -80,14 +80,15 @@ Categories=Office;Utility;
 MimeType=application/pdf;
 EOF
 
-mkdir -p ~/.local/share/applications
-cp /usr/share/applications/pdf-editor.desktop ~/.local/share/applications/
+mkdir -p "$HOME/.local/share/applications"
+cp /usr/share/applications/pdf-editor.desktop "$HOME/.local/share/applications/"
+chown -R $USER:$USER "$HOME/.local/share/applications/pdf-editor.desktop"
 
 # 注册为 PDF 默认应用
-xdg-mime default pdf-editor.desktop application/pdf 2>/dev/null || true
+su - $USER -c "xdg-mime default pdf-editor.desktop application/pdf" 2>/dev/null || true
 
 update-desktop-database /usr/share/applications/ 2>/dev/null || true
-update-desktop-database ~/.local/share/applications/ 2>/dev/null || true
+su - $USER -c "update-desktop-database ~/.local/share/applications/" 2>/dev/null || true
 echo -e "${GREEN}  快捷方式已创建${NC}"
 
 # 完成
