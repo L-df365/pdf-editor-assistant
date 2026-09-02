@@ -10,3 +10,4 @@ services:
       - /tmp/.X11-unix:/tmp/.X11-unix:rw
       - /home/user:/home/user
     network_mode: host
+    command: ["main.py"]
