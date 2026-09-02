@@ -1,5 +1,7 @@
 # PDF Editor Assistant
 
+[中文文档](README_CN.md)
+
 **The only open-source PDF page manager with visual GUI** — insert Word/Excel/images into PDF at any position, auto-convert to PDF pages, with real-time preview.
 
 > 💡 Why this exists: Tools like `pdfarranger`, `pdf2pdf`, `qpdf` can merge PDFs, but none offer a **visual GUI** where you can see page thumbnails, drag to reorder, and insert external files at specific positions. This fills that gap.
@@ -17,17 +19,26 @@
 ### Option 1: Docker (Recommended, all-in-one)
 
 ```bash
-# Build image (first time only)
+# Clone the repository
+git clone https://github.com/L-df365/pdf-editor-assistant.git
+cd pdf-editor-assistant
+
+# Build Docker image (first time only)
 docker build -t pdf-editor-assistant .
 
-# Run with GUI
+# Run
 ./start.sh
 ```
 
 ### Option 2: Direct Install (Requires LibreOffice on system)
 
 ```bash
+# Clone the repository
+git clone https://github.com/L-df365/pdf-editor-assistant.git
+cd pdf-editor-assistant
+
 # Install LibreOffice (if not installed)
+# Ubuntu/Debian:
 sudo apt install libreoffice-core libreoffice-writer libreoffice-calc
 
 # Install Python dependencies
@@ -35,6 +46,13 @@ pip install -r requirements.txt
 
 # Run
 python main.py
+```
+
+### Option 3: One-click Setup
+
+```bash
+chmod +x setup.sh
+./setup.sh
 ```
 
 ## Usage
@@ -86,19 +104,19 @@ python main.py document.pdf
 
 ```
 pdf-editor-assistant/
-├── main.py                # Entry point
-├── start.sh               # Docker launcher
-├── setup.sh               # One-click setup (system install)
-├── Dockerfile             # Docker image with LibreOffice
-├── docker-compose.yml     # Docker Compose config
-├── requirements.txt       # Python dependencies
+├── main.py              # Entry point
+├── start.sh             # Docker launcher
+├── setup.sh             # One-click setup (system install)
+├── Dockerfile           # Docker image with LibreOffice
+├── docker-compose.yml   # Docker Compose config
+├── requirements.txt     # Python dependencies
 ├── core/
-│   ├── converter.py       # LibreOffice conversion wrapper
-│   └── pdf_document.py    # PDF operations (PyMuPDF)
+│   ├── converter.py     # LibreOffice conversion wrapper
+│   └── pdf_document.py  # PDF operations (PyMuPDF)
 └── gui/
-    ├── main_window.py     # Main window
+    ├── main_window.py   # Main window
     ├── thumbnail_panel.py # Thumbnail panel with drag-drop
-    └── preview_panel.py   # Preview panel with zoom
+    └── preview_panel.py # Preview panel with zoom
 ```
 
 ## Tech Stack
