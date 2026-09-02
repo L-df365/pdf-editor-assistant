@@ -14,9 +14,21 @@
 
 ## 快速开始
 
+### 前置依赖
+
+- Python 3.6+
+- Git
+- Docker（Docker 方式需要）或 LibreOffice（本地方式需要）
+
 ### 方式一：Docker（推荐，无需安装 LibreOffice）
 
 ```bash
+# 安装 Docker（如果未安装）
+# Ubuntu/Debian:
+sudo apt install docker.io -y
+sudo usermod -aG docker $USER
+# 重新登录终端后生效
+
 # 克隆仓库
 git clone https://github.com/L-df365/pdf-editor-assistant.git
 cd pdf-editor-assistant
@@ -31,19 +43,18 @@ docker build -t pdf-editor-assistant .
 ### 方式二：本地安装（需要系统已安装 LibreOffice）
 
 ```bash
+# 安装依赖（如果未安装）
+sudo apt install git python3 python3-pip libreoffice-core libreoffice-writer libreoffice-calc -y
+
 # 克隆仓库
 git clone https://github.com/L-df365/pdf-editor-assistant.git
 cd pdf-editor-assistant
 
-# 安装 LibreOffice（如果未安装）
-# Ubuntu/Debian:
-sudo apt install libreoffice-core libreoffice-writer libreoffice-calc
-
 # 安装 Python 依赖
-pip install -r requirements.txt
+pip3 install -r requirements.txt
 
 # 运行
-python main.py
+python3 main.py
 ```
 
 ### 方式三：一键安装脚本

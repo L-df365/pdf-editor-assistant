@@ -16,9 +16,21 @@
 
 ## Quick Start
 
+### Prerequisites
+
+- Python 3.6+
+- Git
+- Docker (for Docker method) or LibreOffice (for local method)
+
 ### Option 1: Docker (Recommended, all-in-one)
 
 ```bash
+# Install Docker (if not installed)
+# Ubuntu/Debian:
+sudo apt install docker.io -y
+sudo usermod -aG docker $USER
+# Log out and back in for group change to take effect
+
 # Clone the repository
 git clone https://github.com/L-df365/pdf-editor-assistant.git
 cd pdf-editor-assistant
@@ -33,19 +45,18 @@ docker build -t pdf-editor-assistant .
 ### Option 2: Direct Install (Requires LibreOffice on system)
 
 ```bash
+# Install dependencies (if not installed)
+sudo apt install git python3 python3-pip libreoffice-core libreoffice-writer libreoffice-calc -y
+
 # Clone the repository
 git clone https://github.com/L-df365/pdf-editor-assistant.git
 cd pdf-editor-assistant
 
-# Install LibreOffice (if not installed)
-# Ubuntu/Debian:
-sudo apt install libreoffice-core libreoffice-writer libreoffice-calc
-
 # Install Python dependencies
-pip install -r requirements.txt
+pip3 install -r requirements.txt
 
 # Run
-python main.py
+python3 main.py
 ```
 
 ### Option 3: One-click Setup
