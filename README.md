@@ -22,6 +22,13 @@
 - Git
 - Docker (for Docker method) or LibreOffice (for local method)
 
+> 💡 **China users**: If `git clone` is slow, use a mirror:
+> ```bash
+> git clone https://ghfast.top/https://github.com/L-df365/pdf-editor-assistant.git
+> # or
+> git clone https://mirror.ghproxy.com/https://github.com/L-df365/pdf-editor-assistant.git
+> ```
+
 ### Option 1: Docker (Recommended, all-in-one)
 
 ```bash
@@ -42,6 +49,21 @@ docker build -t pdf-editor-assistant .
 ./start.sh
 ```
 
+> 💡 **China users**: Docker build slow? Add mirror:
+> ```bash
+> sudo mkdir -p /etc/docker
+> sudo tee /etc/docker/daemon.json <<-'EOF'
+> {
+>   "registry-mirrors": [
+>     "https://docker.1ms.run",
+>     "https://docker.xuanyuan.me"
+>   ]
+> }
+> EOF
+> sudo systemctl daemon-reload
+> sudo systemctl restart docker
+> ```
+
 ### Option 2: Direct Install (Requires LibreOffice on system)
 
 ```bash
@@ -58,6 +80,11 @@ pip3 install -r requirements.txt
 # Run
 python3 main.py
 ```
+
+> 💡 **China users**: pip slow? Use Tsinghua mirror:
+> ```bash
+> pip3 install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
+> ```
 
 ### Option 3: One-click Setup
 
