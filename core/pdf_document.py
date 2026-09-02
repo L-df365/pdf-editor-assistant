@@ -1,5 +1,5 @@
 import os
-import fitz
+import pymupdf
 import tempfile
 from .converter import DocumentConverter
 
@@ -27,7 +27,7 @@ class PDFDocument:
     def open(self, filepath):
         if self.doc:
             self.doc.close()
-        self.doc = fitz.open(filepath)
+        self.doc = pymupdf.open(filepath)
         self.filepath = filepath
         self._modified = False
 
@@ -39,7 +39,7 @@ class PDFDocument:
 
     def get_page_pixmap(self, page_num, zoom=1.0):
         page = self.doc.load_page(page_num)
-        mat = fitz.Matrix(zoom, zoom)
+        mat = pymupdf.Matrix(zoom, zoom)
         return page.get_pixmap(matrix=mat, alpha=False)
 
     def get_page_size(self, page_num):
@@ -50,7 +50,7 @@ class PDFDocument:
         ext = os.path.splitext(filepath)[1].lower()
 
         if ext == '.pdf':
-            src_doc = fitz.open(filepath)
+            src_doc = pymupdf.open(filepath)
             self.doc.insert_pdf(src_doc, start_at=position)
             src_doc.close()
         elif ext in IMAGE_EXTS:
@@ -59,7 +59,7 @@ class PDFDocument:
             pdf_path = self.converter.convert_to_pdf(
                 filepath, output_dir=self._temp_dir
             )
-            src_doc = fitz.open(pdf_path)
+            src_doc = pymupdf.open(pdf_path)
             self.doc.insert_pdf(src_doc, start_at=position)
             src_doc.close()
 
@@ -75,7 +75,7 @@ class PDFDocument:
         page_w = ref_page.rect.width
         page_h = ref_page.rect.height
 
-        new_doc = fitz.open()
+        new_doc = pymupdf.open()
         new_page = new_doc.new_page(width=page_w, height=page_h)
 
         scale = min(page_w / w, page_h / h) * 0.9
@@ -84,7 +84,7 @@ class PDFDocument:
         x = (page_w - new_w) / 2
         y = (page_h - new_h) / 2
 
-        rect = fitz.Rect(x, y, x + new_w, y + new_h)
+        rect = pymupdf.Rect(x, y, x + new_w, y + new_h)
         new_page.insert_image(rect, filename=image_path)
 
         self.doc.insert_pdf(new_doc, start_at=position)
@@ -126,7 +126,7 @@ class PDFDocument:
             self.doc.save(tmp, garbage=4, deflate=True)
             self.doc.close()
             shutil.move(tmp, filepath)
-            self.doc = fitz.open(filepath)
+            self.doc = pymupdf.open(filepath)
         else:
             self.doc.save(filepath, garbage=4, deflate=True)
 
@@ -141,6 +141,6 @@ class PDFDocument:
             zoom = max_width / rect.width
         else:
             zoom = min(max_width / rect.width, max_height / rect.height)
-        mat = fitz.Matrix(zoom, zoom)
+        mat = pymupdf.Matrix(zoom, zoom)
         pix = page.get_pixmap(matrix=mat, alpha=False)
         return pix, zoom

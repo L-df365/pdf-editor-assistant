@@ -151,6 +151,7 @@ class MainWindow:
     def open_pdf(self):
         path = filedialog.askopenfilename(
             title='打开 PDF 文件',
+            initialdir=os.path.expanduser('~'),
             filetypes=[('PDF 文件', '*.pdf'), ('所有文件', '*.*')])
         if not path:
             return
@@ -174,6 +175,7 @@ class MainWindow:
             return
         path = filedialog.asksaveasfilename(
             title='另存为',
+            initialdir=os.path.expanduser('~'),
             defaultextension='.pdf',
             filetypes=[('PDF 文件', '*.pdf')])
         if not path:
@@ -246,6 +248,7 @@ class MainWindow:
     def _on_insert_after(self, page_num):
         path = filedialog.askopenfilename(
             title='选择要插入的文件',
+            initialdir=os.path.expanduser('~'),
             filetypes=FILETYPES)
         if not path:
             return
@@ -254,6 +257,7 @@ class MainWindow:
     def insert_file_dialog(self):
         path = filedialog.askopenfilename(
             title='选择要插入的文件',
+            initialdir=os.path.expanduser('~'),
             filetypes=FILETYPES)
         if not path:
             return
@@ -264,6 +268,7 @@ class MainWindow:
     def insert_file_at(self, position):
         path = filedialog.askopenfilename(
             title='选择要插入的文件',
+            initialdir=os.path.expanduser('~'),
             filetypes=FILETYPES)
         if not path:
             return

@@ -2,15 +2,11 @@ version: '3.8'
 
 services:
   pdf-editor:
-    build: .
+    image: pdf-editor-assistant
     container_name: pdf-editor-assistant
     environment:
       - DISPLAY=${DISPLAY}
-      - XAUTHORITY=/tmp/.docker.xauth
     volumes:
       - /tmp/.X11-unix:/tmp/.X11-unix:rw
-      - /workspace:/workspace
+      - /home/user:/home/user
     network_mode: host
-    privileged: true
-    # 启动命令可通过命令行覆盖
-    # docker compose run pdf-editor python main.py /workspace/file.pdf
