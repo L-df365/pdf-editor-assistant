@@ -27,4 +27,5 @@ COPY . .
 # Make scripts executable
 RUN chmod +x main.py setup.sh
 
-ENTRYPOINT ["python", "main.py"]
+ENTRYPOINT ["python"]
+CMD ["main.py"]

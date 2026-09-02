@@ -8,7 +8,7 @@ from gui.thumbnail_panel import ThumbnailPanel
 from gui.preview_panel import PreviewPanel
 
 
-HOME_DIR = '/home/user' if os.path.isdir('/home/user') else HOME_DIR
+HOME_DIR = '/home/user' if os.path.isdir('/home/user') else os.path.expanduser('~')
 
 FILETYPES = [
     ('所有支持的文件',
