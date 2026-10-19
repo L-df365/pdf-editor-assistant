@@ -29,6 +29,9 @@ After installation:
 - ✅ Right-click PDF → Open with → PDF Editor Assistant
 - ✅ Command line: `pdf-editor file.pdf`
 
+> WPS Office / LibreOffice are not bundled or installed with the app.
+> Selecting a missing backend explicitly prompts to install it and restart.
+
 ### Uninstall
 
 ```bash
@@ -72,12 +75,22 @@ The conversion backend is pluggable behind a single interface:
 output_path = backend.convert_to_pdf(input_path)
 ```
 
-Built-in backends:
+Available backends (not bundled; the app calls a locally installed copy):
 
 | Name | Description |
 |------|-------------|
 | `wps` | Local WPS Office via pywpsrpc. Silent conversion (`Visible = False`, `WithWindow = False`) on an isolated Xvfb display — the splash screen and windows never appear on your desktop |
 | `libreoffice` | LibreOffice headless conversion |
+
+The app itself only contains the UI and PDF logic; WPS/LibreOffice are not
+packaged with it. When a missing backend is selected:
+
+- **LibreOffice**: installed automatically through the system package manager.
+- **WPS**: installed from the system repository when available; otherwise the
+  official WPS download page is opened. `xvfb` is installed automatically and
+  `pywpsrpc` is installed when possible.
+- After installation the app offers to restart and remembers the selected
+  backend.
 
 Select the backend (highest priority first):
 
@@ -86,10 +99,11 @@ Select the backend (highest priority first):
 3. Environment: `PDF_EDIT_BACKEND=wps|libreoffice|auto`
 4. Default `auto`: prefer WPS (pywpsrpc), fall back to LibreOffice
 
-The WPS backend requires `pywpsrpc` and a local WPS Office installation.
-There is no official aarch64 wheel, so it must be built from source.
-Conversions run on an isolated Xvfb display, so the WPS splash screen never
-flashes on the desktop; `install.sh` installs `xvfb` automatically.
+The WPS backend requires a local WPS Office installation and `pywpsrpc`.
+There is no official aarch64 wheel, so building from source may take a while;
+the app attempts the install and shows instructions if it fails. Conversions
+run on an isolated Xvfb display, so the WPS splash screen never flashes on the
+desktop.
 
 ## Architecture
 
@@ -102,8 +116,10 @@ pdf-editor-assistant/
 ├── requirements-wps.txt # Optional: WPS backend dependency
 ├── core/
 │   ├── converter.py     # Switchable backend facade
+│   ├── settings.py      # Persist the selected backend
 │   ├── backends/        # Backend implementations
 │   │   ├── base.py      # Common interface
+│   │   ├── installer.py # On-demand WPS / LibreOffice install
 │   │   ├── wps.py       # Silent WPS backend
 │   │   ├── wps_worker.py# Isolated WPS conversion process
 │   │   └── libreoffice.py
@@ -120,7 +136,7 @@ pdf-editor-assistant/
 |-----------|------------|
 | GUI | tkinter |
 | PDF Rendering | PyMuPDF |
-| File Conversion | WPS Office (pywpsrpc) / LibreOffice headless |
+| File Conversion | Local WPS Office (pywpsrpc) / LibreOffice headless (on demand) |
 | Image Processing | Pillow |
 
 ## Roadmap

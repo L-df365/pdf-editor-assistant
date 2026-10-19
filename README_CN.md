@@ -27,6 +27,9 @@ sudo ./install.sh
 - ✅ 右键 PDF 文件 → 打开方式 → PDF 内嵌编辑助手
 - ✅ 命令行运行 `pdf-editor 文件.pdf`
 
+> WPS Office / LibreOffice 不随应用安装。首次在应用中选择未安装的后端时，
+> 会弹出安装提示；安装完成后可立即重启应用生效。
+
 ### 卸载
 
 ```bash
@@ -70,12 +73,20 @@ python3 main.py
 output_path = backend.convert_to_pdf(input_path)
 ```
 
-内置后端：
+可用后端（不随应用打包，优先调用本机已安装的程序）：
 
 | 名称 | 说明 |
 |------|------|
 | `wps` | 调用本机 WPS Office（pywpsrpc），静默转换：`Visible = False`、`WithWindow = False`，并在独立的 Xvfb 虚拟屏幕中运行，启动画面和窗口不会出现在桌面上 |
 | `libreoffice` | LibreOffice headless 转换 |
+
+应用本身只包含界面和 PDF 处理逻辑，不包含 WPS/LibreOffice。选择本机
+未安装的后端时：
+
+- **LibreOffice**：调用系统包管理器自动安装。
+- **WPS**：优先从系统软件源安装；若软件源中没有，则打开 WPS 官方下载页。
+  同时会安装 `xvfb`，并在需要时尝试安装 `pywpsrpc`。
+- 安装完成后可直接重启应用，应用会记住所选后端。
 
 选择方式（优先级从高到低）：
 
@@ -84,9 +95,9 @@ output_path = backend.convert_to_pdf(input_path)
 3. 环境变量 `PDF_EDIT_BACKEND=wps|libreoffice|auto`
 4. 默认 `auto`：优先 WPS(pywpsrpc)，不可用时回退 LibreOffice
 
-WPS 后端依赖 `pywpsrpc` 和本机 WPS Office。aarch64 平台没有官方 wheel，
-需要源码编译安装。转换会自动使用独立的 Xvfb 虚拟屏幕，因此 WPS 的启动
-动画不会在桌面上闪现；`install.sh` 会自动安装 `xvfb`。
+WPS 后端依赖本机 WPS Office 和 `pywpsrpc`。aarch64 平台没有官方 wheel，
+源码编译可能较慢；应用会尝试自动安装，失败时给出提示和项目链接。
+转换会自动使用独立的 Xvfb 虚拟屏幕，因此 WPS 的启动动画不会在桌面上闪现。
 
 ## 项目结构
 
@@ -99,8 +110,10 @@ pdf-editor-assistant/
 ├── requirements-wps.txt # 可选：WPS 后端依赖
 ├── core/
 │   ├── converter.py     # 转换后端门面（可切换）
+│   ├── settings.py      # 记住所选后端
 │   ├── backends/        # 后端实现
 │   │   ├── base.py      # 统一接口
+│   │   ├── installer.py # 按需安装 WPS / LibreOffice
 │   │   ├── wps.py       # WPS 静默后端
 │   │   ├── wps_worker.py# WPS 独立转换进程
 │   │   └── libreoffice.py
@@ -117,7 +130,7 @@ pdf-editor-assistant/
 |------|------|
 | 界面 | tkinter |
 | PDF 渲染 | PyMuPDF |
-| 文件转换 | WPS Office (pywpsrpc) / LibreOffice headless |
+| 文件转换 | 本机 WPS Office (pywpsrpc) / LibreOffice headless（按需安装） |
 | 图片处理 | Pillow |
 
 ## 路线图

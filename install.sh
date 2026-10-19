@@ -33,15 +33,6 @@ run_as_user() {
     fi
 }
 
-# 检测 WPS 静默转换后端（pywpsrpc + WPS RPC 库）
-WPS_OK=0
-if run_as_user python3 -c "import pywpsrpc" >/dev/null 2>&1; then
-    if [ -e /opt/kingsoft/wps-office/office6/librpcwpsapi_sysqt5.so ] \
-       || [ -e /usr/lib/office6/librpcwpsapi_sysqt5.so ]; then
-        WPS_OK=1
-    fi
-fi
-
 echo -e "${YELLOW}[1/5] 安装系统依赖...${NC}"
 if command -v apt-get &> /dev/null; then
     PKG="apt-get"
@@ -54,52 +45,26 @@ else
     exit 1
 fi
 
-if [ "$WPS_OK" -eq 1 ]; then
-    echo -e "  检测到 WPS 后端，安装 Xvfb（用于完全静默转换）..."
-    if [ "$PKG" = "apt-get" ]; then
-        $SUDO apt-get update -qq
-        $SUDO apt-get install -y -qq python3 python3-tk python3-pip \
-            xdg-utils desktop-file-utils xvfb xauth
-    elif [ "$PKG" = "dnf" ]; then
-        $SUDO dnf install -y python3 python3-tkinter python3-pip \
-            xdg-utils desktop-file-utils xorg-x11-server-Xvfb xauth
-    else
-        $SUDO pacman -S --noconfirm python tk python-pip \
-            xdg-utils desktop-file-utils xorg-server-xvfb xorg-xauth
-    fi
-    echo -e "${GREEN}  系统依赖已安装（WPS 模式）${NC}"
+if [ "$PKG" = "apt-get" ]; then
+    $SUDO apt-get update -qq
+    $SUDO apt-get install -y -qq python3 python3-tk python3-pip \
+        xdg-utils desktop-file-utils
+elif [ "$PKG" = "dnf" ]; then
+    $SUDO dnf install -y python3 python3-tkinter python3-pip \
+        xdg-utils desktop-file-utils
 else
-    echo -e "  未检测到可用的 WPS 后端，安装 LibreOffice 作为转换后端..."
-    if [ "$PKG" = "apt-get" ]; then
-        $SUDO apt-get update -qq
-        $SUDO apt-get install -y -qq python3 python3-tk python3-pip \
-            xdg-utils desktop-file-utils \
-            libreoffice-core libreoffice-writer libreoffice-calc
-        $SUDO rm -f /usr/share/applications/libreoffice*.desktop
-        $SUDO update-desktop-database /usr/share/applications/ 2>/dev/null || true
-    elif [ "$PKG" = "dnf" ]; then
-        $SUDO dnf install -y python3 python3-tkinter python3-pip \
-            xdg-utils desktop-file-utils \
-            libreoffice-core libreoffice-writer libreoffice-calc
-        $SUDO rm -f /usr/share/applications/libreoffice*.desktop
-    else
-        $SUDO pacman -S --noconfirm python tk python-pip \
-            xdg-utils desktop-file-utils libreoffice-fresh
-        $SUDO rm -f /usr/share/applications/libreoffice*.desktop
-    fi
-    echo -e "${GREEN}  系统依赖已安装（LibreOffice 模式）${NC}"
+    $SUDO pacman -S --noconfirm python tk python-pip \
+        xdg-utils desktop-file-utils
 fi
+echo -e "${GREEN}  系统依赖已安装（不包含 WPS / LibreOffice）${NC}"
 
 echo -e "${YELLOW}[2/5] 安装 Python 依赖...${NC}"
 PIP_ARGS="-q -r $SCRIPT_DIR/requirements.txt -i $PIP_MIRROR"
 if ! run_as_user python3 -m pip install --user $PIP_ARGS 2>/dev/null; then
     run_as_user python3 -m pip install --user --break-system-packages $PIP_ARGS
 fi
-if [ "$WPS_OK" -eq 0 ]; then
-    echo -e "${YELLOW}  提示：如需 WPS 静默转换，请安装 pywpsrpc。${NC}"
-    echo "        aarch64 无官方 wheel，可源码编译：pip3 install pywpsrpc --no-binary :all:"
-fi
 echo -e "${GREEN}  Python 依赖已安装${NC}"
+echo "  转换后端不随应用安装，首次选择缺失的后端时应用会提示下载。"
 
 echo -e "${YELLOW}[3/5] 安装程序到 ${INSTALL_DIR}...${NC}"
 $SUDO mkdir -p "$INSTALL_DIR"
@@ -168,7 +133,7 @@ run_as_user env PYTHONPATH="$INSTALL_DIR" python3 - << 'PYEOF' 2>/dev/null || tr
 from core.converter import backend_status
 for b in backend_status():
     print('  后端 {}: {} {}'.format(
-        b['name'], '可用' if b['available'] else '不可用',
+        b['name'], '可用' if b['available'] else '未安装',
         '' if b['available'] else '- ' + b['reason']))
 PYEOF
 
@@ -181,4 +146,7 @@ echo "使用方法："
 echo "  1. 开始菜单搜索 “PDF 内嵌编辑助手”"
 echo "  2. 右键 PDF → 打开方式 → PDF 内嵌编辑助手"
 echo "  3. 命令行: pdf-editor 文件.pdf"
+echo ""
+echo "提示：WPS / LibreOffice 不随应用安装。在应用中选择未安装的"
+echo "      后端时，会提示下载安装，安装完成后可立即重启生效。"
 echo ""

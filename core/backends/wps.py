@@ -77,13 +77,16 @@ class PyWpsRpcBackend(ConversionBackend):
 
     def is_available(self):
         return (importlib.util.find_spec('pywpsrpc') is not None
-                and find_wps_lib_dir() is not None)
+                and find_wps_lib_dir() is not None
+                and shutil.which('xvfb-run') is not None)
 
     def unavailable_reason(self):
         if importlib.util.find_spec('pywpsrpc') is None:
-            return '未安装 pywpsrpc（pip install pywpsrpc，aarch64 需源码编译）'
+            return '未安装 pywpsrpc（aarch64 需源码编译）'
         if find_wps_lib_dir() is None:
             return '未找到 WPS Office 的 RPC 库（librpcwpsapi_sysqt5.so）'
+        if shutil.which('xvfb-run') is None:
+            return '缺少 xvfb-run（用于完全静默转换）'
         return '未知原因'
 
     def convert_to_pdf(self, input_path, output_dir=None):

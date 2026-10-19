@@ -1,9 +1,13 @@
 import os
+import queue
+import sys
+import webbrowser
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 import threading
 
 from core.pdf_document import PDFDocument
+from core.settings import load_backend, save_backend
 from gui.thumbnail_panel import ThumbnailPanel
 from gui.preview_panel import PreviewPanel
 
@@ -35,8 +39,22 @@ class MainWindow:
         self.doc = PDFDocument()
         self.current_page = 0
         self._converting = False
+        self._installing = False
+        self._install_log = []
+
+        if not os.environ.get('PDF_EDIT_BACKEND'):
+            saved = load_backend()
+            if saved:
+                try:
+                    self.doc.converter.set_backend(saved)
+                    self.doc.converter.backend
+                except RuntimeError:
+                    self.doc.converter.set_backend('auto')
+
+        self._last_backend = self._default_last_backend()
         self._backend_var = tk.StringVar(
             value=self.doc.converter.requested_name)
+        self.root.protocol('WM_DELETE_WINDOW', self._on_close)
 
         self._build_menu()
         self._build_toolbar()
@@ -55,7 +73,7 @@ class MainWindow:
         file_menu.add_command(label='另存为  (Ctrl+Shift+S)',
                               command=self.save_as, accelerator='Ctrl+Shift+S')
         file_menu.add_separator()
-        file_menu.add_command(label='退出', command=self.root.quit)
+        file_menu.add_command(label='退出', command=self._on_close)
         menubar.add_cascade(label='文件', menu=file_menu)
 
         edit_menu = tk.Menu(menubar, tearoff=0)
@@ -66,7 +84,8 @@ class MainWindow:
 
         settings_menu = tk.Menu(menubar, tearoff=0)
         backend_menu = tk.Menu(settings_menu, tearoff=0)
-        for name, label in self.doc.converter.backend_choices():
+        self._backend_menu = backend_menu
+        for name, label in self._backend_choices_for_ui():
             backend_menu.add_radiobutton(
                 label=label,
                 value=name,
@@ -110,7 +129,7 @@ class MainWindow:
 
         self._backend_labels = {
             label: name
-            for name, label in self.doc.converter.backend_choices()}
+            for name, label in self._backend_choices_for_ui()}
         self._backend_display = tk.StringVar(
             value=self._label_for_backend(
                 self.doc.converter.requested_name))
@@ -166,25 +185,250 @@ class MainWindow:
         self._update_status(
             '就绪  |  转换后端: {}'.format(self._backend_label()))
 
+    def _backend_choices_for_ui(self):
+        status = {item['name']: item
+                  for item in self.doc.converter.backend_status()}
+        result = []
+        for name, label in self.doc.converter.backend_choices():
+            if name != 'auto' and not status.get(name, {}).get('available'):
+                label = label + '（未安装）'
+            result.append((name, label))
+        return result
+
+    def _backend_info(self, name):
+        for item in self.doc.converter.backend_status():
+            if item['name'] == name:
+                return item
+        return None
+
+    def _default_last_backend(self):
+        requested = self.doc.converter.requested_name
+        status = self.doc.converter.backend_status()
+        if requested == 'auto':
+            return 'auto'
+        for item in status:
+            if item['name'] == requested and item['available']:
+                return requested
+        for item in status:
+            if item['available']:
+                return item['name']
+        return 'auto'
+
     def _backend_label(self):
         try:
             return self.doc.converter.label
         except RuntimeError:
-            return '不可用'
+            return '未安装'
 
     def _on_backend_changed(self):
-        self.doc.converter.set_backend(self._backend_var.get())
-        if hasattr(self, '_backend_display'):
-            self._backend_display.set(
-                self._label_for_backend(self._backend_var.get()))
+        if self._installing:
+            return
+        name = self._backend_var.get()
+        if name != 'auto':
+            info = self._backend_info(name)
+            if info and not info['available']:
+                self._prompt_install_backend(name, info)
+                return
+        self._apply_backend(name)
+
+    def _apply_backend(self, name):
         try:
+            self.doc.converter.set_backend(name)
             label = self.doc.converter.label
         except RuntimeError as exc:
             self._update_status('没有可用的文件转换后端')
             messagebox.showwarning(
                 '转换后端不可用', str(exc), parent=self.root)
+            self._revert_backend()
             return
+        self._last_backend = name
+        try:
+            save_backend(name)
+        except OSError:
+            pass
+        if hasattr(self, '_backend_display'):
+            self._backend_display.set(self._label_for_backend(name))
         self._update_status('转换后端已切换: {}'.format(label))
+
+    def _revert_backend(self):
+        name = self._last_backend
+        self._backend_var.set(name)
+        if hasattr(self, '_backend_display'):
+            self._backend_display.set(self._label_for_backend(name))
+        try:
+            self.doc.converter.set_backend(name)
+        except Exception:
+            pass
+
+    def _prompt_install_backend(self, name, info):
+        self._revert_backend()
+        reason = info.get('reason') or '本机未安装该后端'
+        message = (
+            '未检测到 {}。\n\n{}\n\n'
+            '是否现在下载并安装？\n'
+            '安装完成后需要重启应用。'.format(info['label'], reason))
+        if not messagebox.askyesno(
+                '安装转换后端', message, parent=self.root):
+            return
+        self._start_backend_install(name, info['label'])
+
+    def _start_backend_install(self, name, label):
+        import core.backends.installer as installer
+
+        self._installing = True
+        self._install_log = []
+        self._set_backend_controls_enabled(False)
+
+        dialog = tk.Toplevel(self.root)
+        dialog.title('安装 {}'.format(label))
+        dialog.geometry('640x420')
+        dialog.transient(self.root)
+        dialog.grab_set()
+        dialog.protocol('WM_DELETE_WINDOW', lambda: None)
+
+        ttk.Label(
+            dialog,
+            text='正在安装 {}，请稍候...'.format(label),
+        ).pack(anchor='w', padx=10, pady=(10, 4))
+        progress = ttk.Progressbar(dialog, mode='indeterminate')
+        progress.pack(fill='x', padx=10)
+        progress.start(12)
+
+        log_box = tk.Text(dialog, height=18, wrap='word', state='disabled')
+        scroll = ttk.Scrollbar(dialog, command=log_box.yview)
+        log_box.configure(yscrollcommand=scroll.set)
+        scroll.pack(side='right', fill='y', pady=(8, 10))
+        log_box.pack(fill='both', expand=True, padx=(10, 0), pady=(8, 10))
+
+        events = queue.Queue()
+
+        def append_log(text):
+            self._install_log.append(text)
+            events.put(('log', text))
+
+        def task():
+            try:
+                message = installer.install_backend(name, log=append_log)
+            except installer.ManualInstallRequired as exc:
+                events.put(
+                    ('done', (name, label, str(exc), exc.url, None)))
+            except Exception as exc:
+                events.put(('done', (name, label, '', '', exc)))
+            else:
+                events.put(('done', (name, label, message, '', None)))
+
+        def poll():
+            while True:
+                try:
+                    kind, payload = events.get_nowait()
+                except queue.Empty:
+                    break
+                if kind == 'log':
+                    log_box.configure(state='normal')
+                    log_box.insert('end', payload + '\n')
+                    log_box.see('end')
+                    log_box.configure(state='disabled')
+                elif kind == 'done':
+                    self._install_done(dialog, progress, *payload)
+                    return
+            if self._installing:
+                self.root.after(100, poll)
+
+        threading.Thread(target=task, daemon=True).start()
+        self.root.after(100, poll)
+
+    def _install_done(self, dialog, progress, name, label,
+                      message, url, error):
+        self._installing = False
+        progress.stop()
+        dialog.grab_release()
+        dialog.destroy()
+        self._set_backend_controls_enabled(True)
+
+        if error is not None:
+            detail = '\n'.join(self._install_log[-30:])
+            if len(detail) > 2000:
+                detail = '...' + detail[-2000:]
+            messagebox.showerror(
+                '安装失败',
+                '{}\n\n{}'.format(error, detail),
+                parent=self.root)
+            self._update_status('后端安装失败')
+            return
+
+        try:
+            save_backend(name)
+        except OSError:
+            pass
+
+        if url:
+            try:
+                webbrowser.open(url)
+            except Exception:
+                pass
+            messagebox.showinfo(
+                '需要手动安装',
+                '{}\n\n安装完成后请重启应用。'.format(message),
+                parent=self.root)
+            if messagebox.askyesno(
+                    '重启应用',
+                    '已完成手动安装？是否立即重启应用？',
+                    parent=self.root):
+                self._restart_app(name)
+            else:
+                self._update_status('安装完成后重启应用生效')
+            return
+
+        if messagebox.askyesno(
+                '安装完成',
+                '{}\n\n是否立即重启应用以启用该后端？'.format(message),
+                parent=self.root):
+            self._restart_app(name)
+        else:
+            self._update_status('安装完成，重启应用后生效')
+
+    def _set_backend_controls_enabled(self, enabled):
+        if hasattr(self, '_backend_combo'):
+            self._backend_combo.configure(
+                state='readonly' if enabled else 'disabled')
+        if hasattr(self, '_backend_menu'):
+            state = 'normal' if enabled else 'disabled'
+            for index in range(self._backend_menu.index('end') + 1):
+                self._backend_menu.entryconfigure(index, state=state)
+
+    def _restart_app(self, backend=None):
+        if self.doc.is_modified:
+            if not messagebox.askyesno(
+                    '未保存的修改',
+                    '当前文档有未保存的修改，重启会丢失。是否继续？',
+                    parent=self.root):
+                return
+        backend = backend or self.doc.converter.requested_name
+        entry = os.path.abspath(
+            os.path.join(os.path.dirname(__file__), '..', 'main.py'))
+        args = [sys.executable, entry, '--backend', backend]
+        if self.doc.filepath:
+            args.append(self.doc.filepath)
+        try:
+            os.execv(sys.executable, args)
+        except OSError as exc:
+            messagebox.showerror(
+                '重启失败', str(exc), parent=self.root)
+
+    def _on_close(self):
+        if self._installing:
+            messagebox.showinfo(
+                '正在安装',
+                '后端安装尚未完成，请稍候。',
+                parent=self.root)
+            return
+        if self._converting:
+            messagebox.showinfo(
+                '正在转换',
+                '文件转换尚未完成，请稍候。',
+                parent=self.root)
+            return
+        self.root.destroy()
 
     def _bind_shortcuts(self):
         self.root.bind('<Control-o>', lambda e: self.open_pdf())
@@ -413,7 +657,7 @@ class MainWindow:
             'PDF 内嵌编辑助手\n\n'
             '功能：打开 PDF，在任意位置插入 Word/Excel/图片\n'
             '自动转换为 PDF 页面，支持拖拽排序\n\n'
-            '转换后端：{}\n'
+            '转换后端：{}（按需安装，不随应用打包）\n'
             '技术：Python + PyMuPDF + WPS(pywpsrpc)/LibreOffice'.format(
                 self._backend_label()))
 
