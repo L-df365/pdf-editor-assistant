@@ -64,6 +64,33 @@ python3 main.py
 4. **Automatable** — Can be integrated into workflows via CLI
 5. **Customizable** — Modify to fit your specific needs
 
+## Conversion Backends
+
+The conversion backend is pluggable behind a single interface:
+
+```python
+output_path = backend.convert_to_pdf(input_path)
+```
+
+Built-in backends:
+
+| Name | Description |
+|------|-------------|
+| `wps` | Local WPS Office via pywpsrpc. Silent conversion (`Visible = False`, `WithWindow = False`) on an isolated Xvfb display — the splash screen and windows never appear on your desktop |
+| `libreoffice` | LibreOffice headless conversion |
+
+Select the backend (highest priority first):
+
+1. GUI: Settings → Conversion Backend
+2. CLI: `python3 main.py --backend wps file.pdf`
+3. Environment: `PDF_EDIT_BACKEND=wps|libreoffice|auto`
+4. Default `auto`: prefer WPS (pywpsrpc), fall back to LibreOffice
+
+The WPS backend requires `pywpsrpc` and a local WPS Office installation.
+There is no official aarch64 wheel, so it must be built from source.
+Conversions run on an isolated Xvfb display, so the WPS splash screen never
+flashes on the desktop; `install.sh` installs `xvfb` automatically.
+
 ## Architecture
 
 ```
@@ -72,8 +99,14 @@ pdf-editor-assistant/
 ├── install.sh           # One-click installer
 ├── uninstall.sh         # Uninstaller
 ├── requirements.txt     # Python dependencies
+├── requirements-wps.txt # Optional: WPS backend dependency
 ├── core/
-│   ├── converter.py     # LibreOffice conversion wrapper
+│   ├── converter.py     # Switchable backend facade
+│   ├── backends/        # Backend implementations
+│   │   ├── base.py      # Common interface
+│   │   ├── wps.py       # Silent WPS backend
+│   │   ├── wps_worker.py# Isolated WPS conversion process
+│   │   └── libreoffice.py
 │   └── pdf_document.py  # PDF operations (PyMuPDF)
 └── gui/
     ├── main_window.py   # Main window
@@ -87,7 +120,7 @@ pdf-editor-assistant/
 |-----------|------------|
 | GUI | tkinter |
 | PDF Rendering | PyMuPDF |
-| File Conversion | LibreOffice headless |
+| File Conversion | WPS Office (pywpsrpc) / LibreOffice headless |
 | Image Processing | Pillow |
 
 ## Roadmap
@@ -117,4 +150,5 @@ MIT License — see [LICENSE](LICENSE) for details.
 ## Acknowledgments
 
 - [PyMuPDF](https://pymupdf.readthedocs.io/) — PDF rendering and manipulation
-- [LibreOffice](https://www.libreoffice.org/) — Document conversion engine
+- [WPS Office / pywpsrpc](https://github.com/timxx/pywpsrpc) — Silent local document conversion
+- [LibreOffice](https://www.libreoffice.org/) — Fallback document conversion engine

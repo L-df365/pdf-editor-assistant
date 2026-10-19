@@ -13,11 +13,36 @@ NC='\033[0m'
 
 INSTALL_DIR="/opt/pdf-editor-assistant"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PIP_MIRROR="https://pypi.tuna.tsinghua.edu.cn/simple"
 
-# 安装依赖
-echo -e "${YELLOW}[1/4] 安装依赖...${NC}"
+if [ "$(id -u)" -eq 0 ]; then
+    TARGET_USER="${SUDO_USER:-$USER}"
+    TARGET_HOME="$(getent passwd "$TARGET_USER" | cut -d: -f6)"
+    SUDO=""
+else
+    TARGET_USER="$USER"
+    TARGET_HOME="$HOME"
+    SUDO="sudo"
+fi
 
-# 检测包管理器
+run_as_user() {
+    if [ "$(id -u)" -eq 0 ]; then
+        sudo -u "$TARGET_USER" env HOME="$TARGET_HOME" "$@"
+    else
+        "$@"
+    fi
+}
+
+# 检测 WPS 静默转换后端（pywpsrpc + WPS RPC 库）
+WPS_OK=0
+if run_as_user python3 -c "import pywpsrpc" >/dev/null 2>&1; then
+    if [ -e /opt/kingsoft/wps-office/office6/librpcwpsapi_sysqt5.so ] \
+       || [ -e /usr/lib/office6/librpcwpsapi_sysqt5.so ]; then
+        WPS_OK=1
+    fi
+fi
+
+echo -e "${YELLOW}[1/5] 安装系统依赖...${NC}"
 if command -v apt-get &> /dev/null; then
     PKG="apt-get"
 elif command -v dnf &> /dev/null; then
@@ -25,52 +50,77 @@ elif command -v dnf &> /dev/null; then
 elif command -v pacman &> /dev/null; then
     PKG="pacman"
 else
-    echo -e "${RED}无法检测包管理器，请手动安装: python3 python3-tk python3-pip libreoffice-core libreoffice-writer libreoffice-calc${NC}"
+    echo -e "${RED}无法检测包管理器，请手动安装: python3 python3-tk python3-pip xdg-utils${NC}"
     exit 1
 fi
 
-# 安装系统依赖
-echo -e "  安装 Python3 和 LibreOffice..."
-if [ "$PKG" = "apt-get" ]; then
-    sudo apt-get update -qq
-    sudo apt-get install -y -qq python3 python3-tk python3-pip libreoffice-core libreoffice-writer libreoffice-calc
-    # 隐藏 LibreOffice 开始菜单项（只用内核，不要 UI）
-    sudo rm -f /usr/share/applications/libreoffice*.desktop
-    sudo update-desktop-database /usr/share/applications/ 2>/dev/null || true
-elif [ "$PKG" = "dnf" ]; then
-    sudo dnf install -y python3 python3-tkinter python3-pip libreoffice-core libreoffice-writer libreoffice-calc
-    sudo rm -f /usr/share/applications/libreoffice*.desktop
-elif [ "$PKG" = "pacman" ]; then
-    sudo pacman -S --noconfirm python python-tk python-pip libreoffice-fresh
-    sudo rm -f /usr/share/applications/libreoffice*.desktop
+if [ "$WPS_OK" -eq 1 ]; then
+    echo -e "  检测到 WPS 后端，安装 Xvfb（用于完全静默转换）..."
+    if [ "$PKG" = "apt-get" ]; then
+        $SUDO apt-get update -qq
+        $SUDO apt-get install -y -qq python3 python3-tk python3-pip \
+            xdg-utils desktop-file-utils xvfb xauth
+    elif [ "$PKG" = "dnf" ]; then
+        $SUDO dnf install -y python3 python3-tkinter python3-pip \
+            xdg-utils desktop-file-utils xorg-x11-server-Xvfb xauth
+    else
+        $SUDO pacman -S --noconfirm python tk python-pip \
+            xdg-utils desktop-file-utils xorg-server-xvfb xorg-xauth
+    fi
+    echo -e "${GREEN}  系统依赖已安装（WPS 模式）${NC}"
+else
+    echo -e "  未检测到可用的 WPS 后端，安装 LibreOffice 作为转换后端..."
+    if [ "$PKG" = "apt-get" ]; then
+        $SUDO apt-get update -qq
+        $SUDO apt-get install -y -qq python3 python3-tk python3-pip \
+            xdg-utils desktop-file-utils \
+            libreoffice-core libreoffice-writer libreoffice-calc
+        $SUDO rm -f /usr/share/applications/libreoffice*.desktop
+        $SUDO update-desktop-database /usr/share/applications/ 2>/dev/null || true
+    elif [ "$PKG" = "dnf" ]; then
+        $SUDO dnf install -y python3 python3-tkinter python3-pip \
+            xdg-utils desktop-file-utils \
+            libreoffice-core libreoffice-writer libreoffice-calc
+        $SUDO rm -f /usr/share/applications/libreoffice*.desktop
+    else
+        $SUDO pacman -S --noconfirm python tk python-pip \
+            xdg-utils desktop-file-utils libreoffice-fresh
+        $SUDO rm -f /usr/share/applications/libreoffice*.desktop
+    fi
+    echo -e "${GREEN}  系统依赖已安装（LibreOffice 模式）${NC}"
 fi
-echo -e "${GREEN}  系统依赖已安装${NC}"
 
-# 安装 Python 依赖
-echo -e "  安装 Python 包..."
-pip3 install -q -r "$SCRIPT_DIR/requirements.txt" -i https://pypi.tuna.tsinghua.edu.cn/simple 2>/dev/null || \
-pip3 install -q -r "$SCRIPT_DIR/requirements.txt" --break-system-packages 2>/dev/null || \
-pip3 install -q -r "$SCRIPT_DIR/requirements.txt"
+echo -e "${YELLOW}[2/5] 安装 Python 依赖...${NC}"
+PIP_ARGS="-q -r $SCRIPT_DIR/requirements.txt -i $PIP_MIRROR"
+if ! run_as_user python3 -m pip install --user $PIP_ARGS 2>/dev/null; then
+    run_as_user python3 -m pip install --user --break-system-packages $PIP_ARGS
+fi
+if [ "$WPS_OK" -eq 0 ]; then
+    echo -e "${YELLOW}  提示：如需 WPS 静默转换，请安装 pywpsrpc。${NC}"
+    echo "        aarch64 无官方 wheel，可源码编译：pip3 install pywpsrpc --no-binary :all:"
+fi
 echo -e "${GREEN}  Python 依赖已安装${NC}"
 
-# 安装程序
-echo -e "${YELLOW}[2/4] 安装程序...${NC}"
-sudo mkdir -p "$INSTALL_DIR"
-sudo cp -r "$SCRIPT_DIR"/{main.py,core,gui,requirements.txt} "$INSTALL_DIR/"
-sudo chmod +x "$INSTALL_DIR/main.py"
-echo -e "${GREEN}  程序已安装到 ${INSTALL_DIR}${NC}"
+echo -e "${YELLOW}[3/5] 安装程序到 ${INSTALL_DIR}...${NC}"
+$SUDO mkdir -p "$INSTALL_DIR"
+$SUDO cp -r "$SCRIPT_DIR"/{main.py,core,gui,requirements.txt} "$INSTALL_DIR/"
+[ -f "$SCRIPT_DIR/requirements-wps.txt" ] && \
+    $SUDO cp "$SCRIPT_DIR/requirements-wps.txt" "$INSTALL_DIR/"
+[ -f "$SCRIPT_DIR/README.md" ] && $SUDO cp "$SCRIPT_DIR/README.md" "$INSTALL_DIR/"
+[ -f "$SCRIPT_DIR/README_CN.md" ] && $SUDO cp "$SCRIPT_DIR/README_CN.md" "$INSTALL_DIR/"
+$SUDO chmod -R a+rX "$INSTALL_DIR"
+echo -e "${GREEN}  程序已安装${NC}"
 
-# 创建启动命令
-echo -e "${YELLOW}[3/4] 创建启动器...${NC}"
-sudo tee /usr/local/bin/pdf-editor > /dev/null << EOF
+echo -e "${YELLOW}[4/5] 创建启动器和桌面项...${NC}"
+$SUDO tee /usr/local/bin/pdf-editor > /dev/null << EOF
 #!/bin/bash
-cd ${INSTALL_DIR}
-python3 main.py "\$@"
+cd ${INSTALL_DIR} || exit 1
+exec python3 main.py "\$@"
 EOF
-sudo chmod +x /usr/local/bin/pdf-editor
+$SUDO chmod +x /usr/local/bin/pdf-editor
 
-# 创建桌面快捷方式
-sudo tee /usr/share/applications/pdf-editor.desktop > /dev/null << EOF
+DESKTOP_FILE=$(mktemp)
+cat > "$DESKTOP_FILE" << EOF
 [Desktop Entry]
 Version=1.0
 Type=Application
@@ -78,33 +128,57 @@ Name=PDF 内嵌编辑助手
 Name[zh_CN]=PDF 内嵌编辑助手
 Comment=打开PDF，在任意位置插入Word/图片并实时预览
 Comment[zh_CN]=打开PDF，在任意位置插入Word/图片并实时预览
-Exec=python3 ${INSTALL_DIR}/main.py %U
+Exec=/usr/local/bin/pdf-editor %U
+TryExec=/usr/local/bin/pdf-editor
 Icon=application-pdf
 Terminal=false
-Categories=Office;Utility;
+Categories=Office;
 MimeType=application/pdf;
+StartupNotify=true
 EOF
 
-mkdir -p "$HOME/.local/share/applications"
-cp /usr/share/applications/pdf-editor.desktop "$HOME/.local/share/applications/"
-chown -R $USER:$USER "$HOME/.local/share/applications/pdf-editor.desktop"
+$SUDO install -m 644 "$DESKTOP_FILE" /usr/share/applications/pdf-editor.desktop
+mkdir -p "$TARGET_HOME/.local/share/applications"
+install -m 644 "$DESKTOP_FILE" "$TARGET_HOME/.local/share/applications/pdf-editor.desktop"
+rm -f "$DESKTOP_FILE"
 
-# 注册为 PDF 默认应用
-su - $USER -c "xdg-mime default pdf-editor.desktop application/pdf" 2>/dev/null || true
+if [ "$(id -u)" -eq 0 ]; then
+    chown "$TARGET_USER:$TARGET_USER" \
+        "$TARGET_HOME/.local/share/applications/pdf-editor.desktop"
+fi
+if command -v restorecon &> /dev/null; then
+    $SUDO restorecon \
+        "$TARGET_HOME/.local/share/applications/pdf-editor.desktop" \
+        2>/dev/null || true
+fi
 
-update-desktop-database /usr/share/applications/ 2>/dev/null || true
-su - $USER -c "update-desktop-database ~/.local/share/applications/" 2>/dev/null || true
-echo -e "${GREEN}  快捷方式已创建${NC}"
+$SUDO update-desktop-database /usr/share/applications/ 2>/dev/null || true
+run_as_user update-desktop-database \
+    "$TARGET_HOME/.local/share/applications/" 2>/dev/null || true
+run_as_user xdg-mime default pdf-editor.desktop application/pdf 2>/dev/null || true
 
-# 完成
-echo -e "${YELLOW}[4/4] 安装完成！${NC}"
+echo -e "${GREEN}  快捷方式已创建，并已注册到 PDF 的“打开方式”${NC}"
+
+echo -e "${YELLOW}[5/5] 检查安装结果...${NC}"
+if command -v desktop-file-validate &> /dev/null; then
+    desktop-file-validate /usr/share/applications/pdf-editor.desktop || true
+fi
+echo "  PDF 默认打开方式: $(run_as_user xdg-mime query default application/pdf 2>/dev/null)"
+run_as_user env PYTHONPATH="$INSTALL_DIR" python3 - << 'PYEOF' 2>/dev/null || true
+from core.converter import backend_status
+for b in backend_status():
+    print('  后端 {}: {} {}'.format(
+        b['name'], '可用' if b['available'] else '不可用',
+        '' if b['available'] else '- ' + b['reason']))
+PYEOF
+
 echo ""
 echo "=========================================="
 echo -e "${GREEN}  安装成功！${NC}"
 echo "=========================================="
 echo ""
 echo "使用方法："
-echo "  1. 从开始菜单搜索 'PDF 内嵌编辑助手'"
-echo "  2. 右键 PDF 文件 → 打开方式 → PDF 内嵌编辑助手"
+echo "  1. 开始菜单搜索 “PDF 内嵌编辑助手”"
+echo "  2. 右键 PDF → 打开方式 → PDF 内嵌编辑助手"
 echo "  3. 命令行: pdf-editor 文件.pdf"
 echo ""

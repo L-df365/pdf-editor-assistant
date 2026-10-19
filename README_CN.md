@@ -62,6 +62,32 @@ python3 main.py
 4. **可自动化** — 可集成到工作流中
 5. **可定制** — 根据需求修改
 
+## 转换后端
+
+文件转换后端可替换，统一接口：
+
+```python
+output_path = backend.convert_to_pdf(input_path)
+```
+
+内置后端：
+
+| 名称 | 说明 |
+|------|------|
+| `wps` | 调用本机 WPS Office（pywpsrpc），静默转换：`Visible = False`、`WithWindow = False`，并在独立的 Xvfb 虚拟屏幕中运行，启动画面和窗口不会出现在桌面上 |
+| `libreoffice` | LibreOffice headless 转换 |
+
+选择方式（优先级从高到低）：
+
+1. 图形界面「设置 → 转换后端」
+2. 命令行 `python3 main.py --backend wps file.pdf`
+3. 环境变量 `PDF_EDIT_BACKEND=wps|libreoffice|auto`
+4. 默认 `auto`：优先 WPS(pywpsrpc)，不可用时回退 LibreOffice
+
+WPS 后端依赖 `pywpsrpc` 和本机 WPS Office。aarch64 平台没有官方 wheel，
+需要源码编译安装。转换会自动使用独立的 Xvfb 虚拟屏幕，因此 WPS 的启动
+动画不会在桌面上闪现；`install.sh` 会自动安装 `xvfb`。
+
 ## 项目结构
 
 ```
@@ -70,8 +96,14 @@ pdf-editor-assistant/
 ├── install.sh           # 一键安装脚本
 ├── uninstall.sh         # 卸载脚本
 ├── requirements.txt     # Python 依赖
+├── requirements-wps.txt # 可选：WPS 后端依赖
 ├── core/
-│   ├── converter.py     # LibreOffice 转换封装
+│   ├── converter.py     # 转换后端门面（可切换）
+│   ├── backends/        # 后端实现
+│   │   ├── base.py      # 统一接口
+│   │   ├── wps.py       # WPS 静默后端
+│   │   ├── wps_worker.py# WPS 独立转换进程
+│   │   └── libreoffice.py
 │   └── pdf_document.py  # PDF 操作（PyMuPDF）
 └── gui/
     ├── main_window.py   # 主窗口
@@ -85,7 +117,7 @@ pdf-editor-assistant/
 |------|------|
 | 界面 | tkinter |
 | PDF 渲染 | PyMuPDF |
-| 文件转换 | LibreOffice headless |
+| 文件转换 | WPS Office (pywpsrpc) / LibreOffice headless |
 | 图片处理 | Pillow |
 
 ## 路线图
@@ -115,4 +147,5 @@ MIT License — 详见 [LICENSE](LICENSE)
 ## 致谢
 
 - [PyMuPDF](https://pymupdf.readthedocs.io/) — PDF 渲染和操作
-- [LibreOffice](https://www.libreoffice.org/) — 文档转换引擎
+- [WPS Office / pywpsrpc](https://github.com/timxx/pywpsrpc) — 本机静默文档转换
+- [LibreOffice](https://www.libreoffice.org/) — 备用文档转换引擎

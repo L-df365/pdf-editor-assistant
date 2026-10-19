@@ -34,12 +34,27 @@ else
 fi
 echo -e "${GREEN}  Found: $($PIP --version)${NC}"
 
-# Install LibreOffice if not present
-echo -e "${YELLOW}[3/4] Checking LibreOffice...${NC}"
-if command -v soffice &> /dev/null; then
+# Check conversion backend: WPS (preferred) or LibreOffice
+echo -e "${YELLOW}[3/4] Checking conversion backend...${NC}"
+if $PYTHON -c "import pywpsrpc" &> /dev/null \
+   && { [ -e /opt/kingsoft/wps-office/office6/librpcwpsapi_sysqt5.so ] \
+        || [ -e /usr/lib/office6/librpcwpsapi_sysqt5.so ]; }; then
+    echo -e "${GREEN}  Found: WPS Office + pywpsrpc (静默转换)${NC}"
+    if ! command -v xvfb-run &> /dev/null; then
+        echo -e "${YELLOW}  安装 Xvfb（避免转换时闪现 WPS 启动画面）...${NC}"
+        if command -v apt-get &> /dev/null; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq xvfb xauth
+        elif command -v dnf &> /dev/null; then
+            sudo dnf install -y xorg-x11-server-Xvfb xauth
+        elif command -v pacman &> /dev/null; then
+            sudo pacman -S --noconfirm xorg-server-xvfb xorg-xauth
+        fi
+    fi
+elif command -v soffice &> /dev/null; then
     echo -e "${GREEN}  Found: $(soffice --version)${NC}"
 else
-    echo -e "${YELLOW}  LibreOffice not found. Installing...${NC}"
+    echo -e "${YELLOW}  WPS 后端不可用，安装 LibreOffice 作为后备...${NC}"
     if command -v apt-get &> /dev/null; then
         sudo apt-get update -qq
         sudo apt-get install -y -qq libreoffice-core libreoffice-writer libreoffice-calc
@@ -50,8 +65,7 @@ else
     elif command -v brew &> /dev/null; then
         brew install --cask libreoffice
     else
-        echo -e "${RED}  Cannot auto-install LibreOffice. Please install manually:${NC}"
-        echo "  https://www.libreoffice.org/download/"
+        echo -e "${RED}  Cannot auto-install a backend. Install WPS + pywpsrpc or LibreOffice.${NC}"
         exit 1
     fi
     echo -e "${GREEN}  Installed successfully${NC}"
@@ -59,7 +73,7 @@ fi
 
 # Install Python dependencies
 echo -e "${YELLOW}[4/4] Installing Python dependencies...${NC}"
-$PIP install -r requirements.txt -q
+$PIP install -r requirements.txt -q -i https://pypi.tuna.tsinghua.edu.cn/simple
 echo -e "${GREEN}  Done${NC}"
 
 echo ""

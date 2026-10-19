@@ -1,88 +1,73 @@
 import os
-import subprocess
-import tempfile
-import shutil
+
+from .backends import (
+    BACKEND_ENV,
+    BACKEND_CLASSES,
+    DEFAULT_BACKEND,
+    backend_choices,
+    backend_status,
+    get_backend,
+)
 
 
 class DocumentConverter:
-    """使用 LibreOffice headless 将 Office 文档转换为 PDF。"""
+    """文件转 PDF 门面，可在运行时切换底层后端。
 
-    SUPPORTED = {
-        '.docx', '.doc', '.xlsx', '.xls', '.pptx', '.ppt',
-        '.odt', '.ods', '.odp', '.rtf', '.txt',
-    }
+    统一接口::
 
-    def __init__(self, soffice_path=None):
-        self.soffice = self._find_soffice(soffice_path)
+        output_path = converter.convert_to_pdf(input_path)
 
-    def _find_soffice(self, custom_path=None):
-        if custom_path and os.path.exists(custom_path):
-            return custom_path
+    后端选择优先级：
+    1. 构造函数参数 ``backend``
+    2. 环境变量 ``PDF_EDIT_BACKEND``（auto/wps/libreoffice）
+    3. ``auto``：优先 WPS(pywpsrpc)，其次 LibreOffice
+    """
 
-        system_path = shutil.which('soffice')
-        if system_path:
-            return system_path
+    SUPPORTED = set().union(
+        *(cls.SUPPORTED for cls in BACKEND_CLASSES))
 
-        system_paths = [
-            '/usr/bin/soffice',
-            '/usr/lib/libreoffice/program/soffice',
-            '/opt/libreoffice/program/soffice',
-        ]
-        for p in system_paths:
-            if os.path.exists(p):
-                return p
+    def __init__(self, backend=None):
+        self._requested = (backend or os.environ.get(BACKEND_ENV)
+                           or DEFAULT_BACKEND).strip().lower()
+        self._backend = None
 
-        app_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        portable_paths = [
-            os.path.join(app_dir, 'libreoffice_portable', 'program', 'soffice'),
-            os.path.join(app_dir, 'libreoffice_portable', 'soffice'),
-        ]
-        for p in portable_paths:
-            if os.path.exists(p):
-                return p
+    @property
+    def requested_name(self):
+        return self._requested
 
-        raise RuntimeError(
-            '未找到 LibreOffice。请安装 libreoffice-core 或使用 Docker 版本'
-        )
+    @property
+    def backend(self):
+        if self._backend is None:
+            self._backend = get_backend(self._requested)
+        return self._backend
+
+    @property
+    def name(self):
+        return self.backend.name
+
+    @property
+    def label(self):
+        return self.backend.label
+
+    def set_backend(self, name):
+        """切换后端（auto/wps/libreoffice），下次转换时生效。"""
+        self._requested = (name or DEFAULT_BACKEND).strip().lower()
+        self._backend = None
+
+    def backend_choices(self):
+        return backend_choices()
+
+    def backend_status(self):
+        return backend_status()
 
     def can_convert(self, filepath):
         ext = os.path.splitext(filepath)[1].lower()
         if ext == '.pdf':
             return True
-        return ext in self.SUPPORTED
+        try:
+            return self.backend.can_convert(filepath)
+        except RuntimeError:
+            return any(ext in cls.SUPPORTED for cls in BACKEND_CLASSES)
 
     def convert_to_pdf(self, input_path, output_dir=None):
-        ext = os.path.splitext(input_path)[1].lower()
-        if ext == '.pdf':
-            return input_path
-
-        if output_dir is None:
-            output_dir = tempfile.mkdtemp(prefix='pdf_edit_')
-        os.makedirs(output_dir, exist_ok=True)
-
-        with tempfile.TemporaryDirectory() as profile_dir:
-            result = subprocess.run(
-                [
-                    self.soffice,
-                    f'-env:UserInstallation=file://{profile_dir}',
-                    '--headless',
-                    '--norestore',
-                    '--convert-to', 'pdf',
-                    '--outdir', output_dir,
-                    os.path.abspath(input_path),
-                ],
-                capture_output=True,
-                text=True,
-                timeout=120,
-            )
-
-        if result.returncode != 0:
-            raise RuntimeError(
-                f'LibreOffice 转换失败:\n{result.stderr or result.stdout}'
-            )
-
-        basename = os.path.splitext(os.path.basename(input_path))[0]
-        pdf_path = os.path.join(output_dir, basename + '.pdf')
-        if not os.path.exists(pdf_path):
-            raise RuntimeError(f'转换后未找到 PDF: {pdf_path}')
-        return pdf_path
+        return self.backend.convert_to_pdf(input_path, output_dir=output_dir)

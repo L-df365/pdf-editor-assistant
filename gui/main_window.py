@@ -35,6 +35,8 @@ class MainWindow:
         self.doc = PDFDocument()
         self.current_page = 0
         self._converting = False
+        self._backend_var = tk.StringVar(
+            value=self.doc.converter.requested_name)
 
         self._build_menu()
         self._build_toolbar()
@@ -61,6 +63,17 @@ class MainWindow:
             label='插入文件到末尾',
             command=lambda: self.insert_file_at(self.doc.page_count))
         menubar.add_cascade(label='编辑', menu=edit_menu)
+
+        settings_menu = tk.Menu(menubar, tearoff=0)
+        backend_menu = tk.Menu(settings_menu, tearoff=0)
+        for name, label in self.doc.converter.backend_choices():
+            backend_menu.add_radiobutton(
+                label=label,
+                value=name,
+                variable=self._backend_var,
+                command=self._on_backend_changed)
+        settings_menu.add_cascade(label='转换后端', menu=backend_menu)
+        menubar.add_cascade(label='设置', menu=settings_menu)
 
         help_menu = tk.Menu(menubar, tearoff=0)
         help_menu.add_command(label='关于',
@@ -95,6 +108,36 @@ class MainWindow:
                    command=self.save_pdf).pack(
                        side='right', padx=4, pady=3)
 
+        self._backend_labels = {
+            label: name
+            for name, label in self.doc.converter.backend_choices()}
+        self._backend_display = tk.StringVar(
+            value=self._label_for_backend(
+                self.doc.converter.requested_name))
+        self._backend_combo = ttk.Combobox(
+            toolbar,
+            textvariable=self._backend_display,
+            values=list(self._backend_labels),
+            state='readonly',
+            width=24)
+        self._backend_combo.pack(side='right', padx=4, pady=3)
+        self._backend_combo.bind(
+            '<<ComboboxSelected>>', self._on_backend_combo)
+        ttk.Label(toolbar, text='转换后端:').pack(
+            side='right', padx=(8, 2), pady=3)
+
+    def _label_for_backend(self, name):
+        for label, value in self._backend_labels.items():
+            if value == name:
+                return label
+        return next(iter(self._backend_labels))
+
+    def _on_backend_combo(self, event=None):
+        name = self._backend_labels.get(self._backend_display.get())
+        if name:
+            self._backend_var.set(name)
+            self._on_backend_changed()
+
     def _build_main_area(self):
         paned = ttk.PanedWindow(self.root, orient='horizontal')
         paned.pack(fill='both', expand=True, padx=2, pady=2)
@@ -120,6 +163,28 @@ class MainWindow:
         self.statusbar = ttk.Label(
             self.root, text='就绪', relief='sunken', anchor='w')
         self.statusbar.pack(fill='x', side='bottom', padx=2, pady=2)
+        self._update_status(
+            '就绪  |  转换后端: {}'.format(self._backend_label()))
+
+    def _backend_label(self):
+        try:
+            return self.doc.converter.label
+        except RuntimeError:
+            return '不可用'
+
+    def _on_backend_changed(self):
+        self.doc.converter.set_backend(self._backend_var.get())
+        if hasattr(self, '_backend_display'):
+            self._backend_display.set(
+                self._label_for_backend(self._backend_var.get()))
+        try:
+            label = self.doc.converter.label
+        except RuntimeError as exc:
+            self._update_status('没有可用的文件转换后端')
+            messagebox.showwarning(
+                '转换后端不可用', str(exc), parent=self.root)
+            return
+        self._update_status('转换后端已切换: {}'.format(label))
 
     def _bind_shortcuts(self):
         self.root.bind('<Control-o>', lambda e: self.open_pdf())
@@ -348,7 +413,9 @@ class MainWindow:
             'PDF 内嵌编辑助手\n\n'
             '功能：打开 PDF，在任意位置插入 Word/Excel/图片\n'
             '自动转换为 PDF 页面，支持拖拽排序\n\n'
-            '技术：Python + PyMuPDF + LibreOffice')
+            '转换后端：{}\n'
+            '技术：Python + PyMuPDF + WPS(pywpsrpc)/LibreOffice'.format(
+                self._backend_label()))
 
     def run(self):
         self.root.mainloop()
