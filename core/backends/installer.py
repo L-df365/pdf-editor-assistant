@@ -115,8 +115,64 @@ def is_wps_installed():
         '/opt/kingsoft/wps-office/office6/wps')
 
 
+def is_libreoffice_installed():
+    return shutil.which('soffice') is not None
+
+
 def is_pywpsrpc_installed():
     return importlib.util.find_spec('pywpsrpc') is not None
+
+
+APP_STORE_QUERIES = {
+    'wps': 'WPS Office',
+    'libreoffice': 'LibreOffice',
+}
+
+APP_STORE_FALLBACKS = {
+    'wps': WPS_DOWNLOAD_URL,
+    'libreoffice': LIBREOFFICE_URL,
+}
+
+
+def _spawn_detached(args):
+    subprocess.Popen(
+        args,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+
+
+def open_app_store(name):
+    """打开系统软件商店搜索指定后端，返回给用户看的提示。"""
+    keyword = APP_STORE_QUERIES.get(name, name)
+    stores = (
+        ('kylin-software-center', ()),
+        ('gnome-software', ('--search',)),
+        ('plasma-discover', ('--search',)),
+    )
+    for command, extra in stores:
+        path = shutil.which(command)
+        if not path:
+            continue
+        args = [path]
+        if command == 'kylin-software-center':
+            args.append(keyword)
+        else:
+            args.extend(extra)
+            args.append(keyword)
+        try:
+            _spawn_detached(args)
+            return '已打开软件商店，请搜索并安装 {}。'.format(keyword)
+        except OSError:
+            continue
+    try:
+        import webbrowser
+        webbrowser.open(APP_STORE_FALLBACKS.get(name, LIBREOFFICE_URL))
+    except Exception:
+        return '请手动安装 {} 后重启应用。'.format(keyword)
+    return '已打开下载页面，请安装 {} 后重启应用。'.format(keyword)
 
 
 def install_libreoffice(log=None):
@@ -182,6 +238,14 @@ def install_wps(log=None):
         raise ManualInstallRequired(
             'WPS 安装后仍未找到可执行文件。已打开官方下载页面，'
             '请检查安装后重启应用。',
+            WPS_DOWNLOAD_URL,
+        )
+
+    from .wps import find_wps_lib_dir
+    if find_wps_lib_dir() is None:
+        raise ManualInstallRequired(
+            '未找到 WPS Office 的 RPC 库（librpcwpsapi_sysqt5.so）。'
+            '请重新安装 WPS Office 后重启应用。',
             WPS_DOWNLOAD_URL,
         )
 

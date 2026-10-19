@@ -80,13 +80,14 @@ output_path = backend.convert_to_pdf(input_path)
 | `wps` | 调用本机 WPS Office（pywpsrpc），静默转换：`Visible = False`、`WithWindow = False`，并在独立的 Xvfb 虚拟屏幕中运行，启动画面和窗口不会出现在桌面上 |
 | `libreoffice` | LibreOffice headless 转换 |
 
-应用本身只包含界面和 PDF 处理逻辑，不包含 WPS/LibreOffice。选择本机
-未安装的后端时：
+应用本身只包含界面和 PDF 处理逻辑，不包含 WPS/LibreOffice。启动时会
+自动检测本机环境：
 
-- **LibreOffice**：调用系统包管理器自动安装。
-- **WPS**：优先从系统软件源安装；若软件源中没有，则打开 WPS 官方下载页。
-  同时会安装 `xvfb`，并在需要时尝试安装 `pywpsrpc`。
-- 安装完成后可直接重启应用，应用会记住所选后端。
+- 已安装 **WPS**：自动补齐 `pywpsrpc`、`xvfb` 等 WPS 转换支持。
+- 已安装 **LibreOffice**：直接使用，无需额外组件。
+- 两者都未安装：弹出选择框，提供「安装 WPS Office」和「安装 LibreOffice」
+  两个按钮，点击后打开系统软件商店并复制搜索词，安装完成后重启应用即可。
+- 在「设置 → 转换后端」中手动选择未安装的后端时，也会提示安装。
 
 选择方式（优先级从高到低）：
 

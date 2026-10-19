@@ -6,6 +6,7 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 import threading
 
+from core.backends import installer
 from core.pdf_document import PDFDocument
 from core.settings import load_backend, save_backend
 from gui.thumbnail_panel import ThumbnailPanel
@@ -61,6 +62,8 @@ class MainWindow:
         self._build_main_area()
         self._build_statusbar()
         self._bind_shortcuts()
+
+        self.root.after(250, self._check_backends_on_startup)
 
     def _build_menu(self):
         menubar = tk.Menu(self.root)
@@ -260,6 +263,70 @@ class MainWindow:
         except Exception:
             pass
 
+    def _check_backends_on_startup(self):
+        if self._installing:
+            return
+        status = {item['name']: item
+                  for item in self.doc.converter.backend_status()}
+        if any(item['available'] for item in status.values()):
+            return
+        if installer.is_wps_installed():
+            self._update_status('正在自动配置 WPS 转换支持...')
+            self._start_backend_install(
+                'wps', status['wps']['label'], auto=True)
+            return
+        if installer.is_libreoffice_installed():
+            self._update_status('LibreOffice 已安装但暂不可用')
+            return
+        self._show_backend_choice()
+
+    def _show_backend_choice(self):
+        dialog = tk.Toplevel(self.root)
+        dialog.title('需要文件转换工具')
+        dialog.transient(self.root)
+        dialog.grab_set()
+        dialog.resizable(False, False)
+
+        frame = ttk.Frame(dialog, padding=16)
+        frame.pack(fill='both', expand=True)
+        ttk.Label(
+            frame,
+            justify='left',
+            text=('未检测到 WPS Office 或 LibreOffice。\n\n'
+                  '插入 Word / Excel 文件需要至少安装其中一个。\n'
+                  'PDF 的打开、预览、旋转和保存不受影响。'),
+        ).pack(anchor='w')
+
+        buttons = ttk.Frame(frame)
+        buttons.pack(fill='x', pady=(14, 0))
+
+        def choose(name):
+            keyword = installer.APP_STORE_QUERIES.get(name, name)
+            try:
+                self.root.clipboard_clear()
+                self.root.clipboard_append(keyword)
+            except tk.TclError:
+                pass
+            text = installer.open_app_store(name)
+            dialog.destroy()
+            self._update_status(text)
+
+        ttk.Button(
+            buttons, text='安装 WPS Office',
+            command=lambda: choose('wps')).pack(side='left')
+        ttk.Button(
+            buttons, text='安装 LibreOffice',
+            command=lambda: choose('libreoffice')).pack(
+                side='left', padx=8)
+        ttk.Button(
+            buttons, text='稍后',
+            command=dialog.destroy).pack(side='right')
+
+        dialog.update_idletasks()
+        x = self.root.winfo_rootx() + 80
+        y = self.root.winfo_rooty() + 80
+        dialog.geometry('+{}+{}'.format(x, y))
+
     def _prompt_install_backend(self, name, info):
         self._revert_backend()
         reason = info.get('reason') or '本机未安装该后端'
@@ -272,9 +339,7 @@ class MainWindow:
             return
         self._start_backend_install(name, info['label'])
 
-    def _start_backend_install(self, name, label):
-        import core.backends.installer as installer
-
+    def _start_backend_install(self, name, label, auto=False):
         self._installing = True
         self._install_log = []
         self._set_backend_controls_enabled(False)
@@ -288,7 +353,8 @@ class MainWindow:
 
         ttk.Label(
             dialog,
-            text='正在安装 {}，请稍候...'.format(label),
+            text='正在{} {}，请稍候...'.format(
+                '自动配置' if auto else '安装', label),
         ).pack(anchor='w', padx=10, pady=(10, 4))
         progress = ttk.Progressbar(dialog, mode='indeterminate')
         progress.pack(fill='x', padx=10)
@@ -310,12 +376,14 @@ class MainWindow:
             try:
                 message = installer.install_backend(name, log=append_log)
             except installer.ManualInstallRequired as exc:
-                events.put(
-                    ('done', (name, label, str(exc), exc.url, None)))
+                events.put(('done', (
+                    name, label, str(exc), exc.url, None, auto)))
             except Exception as exc:
-                events.put(('done', (name, label, '', '', exc)))
+                events.put(('done', (
+                    name, label, '', '', exc, auto)))
             else:
-                events.put(('done', (name, label, message, '', None)))
+                events.put(('done', (
+                    name, label, message, '', None, auto)))
 
         def poll():
             while True:
@@ -338,7 +406,7 @@ class MainWindow:
         self.root.after(100, poll)
 
     def _install_done(self, dialog, progress, name, label,
-                      message, url, error):
+                      message, url, error, auto=False):
         self._installing = False
         progress.stop()
         dialog.grab_release()
@@ -354,6 +422,8 @@ class MainWindow:
                 '{}\n\n{}'.format(error, detail),
                 parent=self.root)
             self._update_status('后端安装失败')
+            if auto:
+                self._show_backend_choice()
             return
 
         try:

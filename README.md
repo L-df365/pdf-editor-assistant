@@ -83,14 +83,16 @@ Available backends (not bundled; the app calls a locally installed copy):
 | `libreoffice` | LibreOffice headless conversion |
 
 The app itself only contains the UI and PDF logic; WPS/LibreOffice are not
-packaged with it. When a missing backend is selected:
+packaged with it. On startup the app checks the local environment:
 
-- **LibreOffice**: installed automatically through the system package manager.
-- **WPS**: installed from the system repository when available; otherwise the
-  official WPS download page is opened. `xvfb` is installed automatically and
-  `pywpsrpc` is installed when possible.
-- After installation the app offers to restart and remembers the selected
-  backend.
+- **WPS installed**: automatically installs the missing `pywpsrpc` / `xvfb`
+  support.
+- **LibreOffice installed**: used directly, no extra components needed.
+- **Neither installed**: shows two buttons, "Install WPS Office" and "Install
+  LibreOffice", which open the system software store and copy the search term.
+  Restart the app after installation.
+- Selecting a missing backend manually under Settings → Conversion Backend also
+  offers to install it.
 
 Select the backend (highest priority first):
 
