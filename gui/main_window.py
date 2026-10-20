@@ -22,6 +22,7 @@ from gui.theme import (ACCENT, INK_2, INK_3, MARKER, OK, SURFACE, font,
                         init_theme)
 from gui.thumbnail_panel import ThumbnailPanel
 from gui.preview_panel import PreviewPanel
+from gui.version import VERSION
 
 
 HOME_DIR = '/home/user' if os.path.isdir('/home/user') else os.path.expanduser('~')
@@ -1066,7 +1067,8 @@ class MainWindow:
     def _show_about(self):
         InfoPanel.show(
             self.root, 'PDF 内嵌编辑助手',
-            [('作用', '把 Word、Excel、图片转成页面，插进 PDF 的任意位置'),
+            [('版本', VERSION),
+             ('作用', '把 Word、Excel、图片转成页面，插进 PDF 的任意位置'),
              ('转换后端', '{}（按需安装，不随应用打包）'.format(
                  self._backend_label())),
              ('技术', 'Python + PyMuPDF + WPS / LibreOffice')],
