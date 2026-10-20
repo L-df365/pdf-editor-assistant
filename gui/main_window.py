@@ -52,6 +52,7 @@ class MainWindow:
         self.current_page = 0
         self._converting = False
         self._menus = []
+        self._menu_cache = {}
         self._installing = False
         self._install_log = []
         self._tasks = queue.Queue()
@@ -93,11 +94,12 @@ class MainWindow:
                                ('插入', self._menu_insert),
                                ('设置', self._menu_settings),
                                ('帮助', self._menu_help)):
+            # 菜单在"松手"时打开：按下就开会和菜单自己的"点外面关闭"
+            # 打架，表现为点一下没反应。
             button = FlatButton(bar, label, variant='menu', bg=SURFACE)
+            button.set_command(
+                lambda b=button, fn=builder: self._open_top_menu(fn, b))
             button.pack(side='left', padx=(2, 2), pady=6)
-            button.bind('<Button-1>',
-                        lambda e, b=button, fn=builder:
-                        self._open_top_menu(fn, b), add='+')
             self._menu_items[label] = button
 
         FlatButton(bar, '⋯', command=self._show_more_menu, variant='ghost',
@@ -111,9 +113,15 @@ class MainWindow:
         self._save_button.pack(side='right', padx=(0, 4), pady=6)
 
     def _open_top_menu(self, builder, button):
-        """点顶栏的文字项：弹出菜单浮层。"""
-        menu = MenuPopover(self.root, builder())
-        self._menus.append(menu)
+        """点顶栏的文字项：弹出菜单浮层（浮层实例复用，不再每次重建）。"""
+        menu = self._menu_cache.get(builder)
+        if menu is None:
+            menu = MenuPopover(self.root, builder())
+            self._menu_cache[builder] = menu
+        else:
+            menu.set_items(builder())
+        if menu not in self._menus:
+            self._menus.append(menu)
         menu.show(button.winfo_rootx(),
                   button.winfo_rooty() + button.winfo_height() + 2)
 

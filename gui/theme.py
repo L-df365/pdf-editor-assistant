@@ -23,6 +23,7 @@ PAPER = '#FFFFFF'       # 纸张：页面卡、输入框、弹层
 STAGE = '#D8DEDD'       # 预览台面（比 surface 深一档，让白纸浮起来）
 LINE = '#D3D9D7'        # 1px 分隔线、卡片描边
 LINE_SOFT = '#E3E8E6'   # 更弱的分隔、滚动条轨道
+SCROLL_THUMB = '#C2CAC8'  # 滚动条滑块：比 LINE 深一档，浅色底上也要看得见
 INK = '#1B2321'         # 主文字
 INK_2 = '#586460'       # 次要文字
 INK_3 = '#8B9693'       # 三级 / 禁用（不用于正文）
@@ -366,14 +367,14 @@ def _configure_styles(style):
     # 滚动条：无箭头细条
     # 滚动条：不要设 arrowsize=0 —— clam 主题的宽度是由箭头决定的，
     # 去掉箭头会把滚动条压成 1px（看上去就是"滚动条没了"）。
-    _set(style, 'Vertical.TScrollbar', background=LINE, troughcolor=BG,
-         bordercolor=BG, lightcolor=LINE, darkcolor=LINE,
+    _set(style, 'Vertical.TScrollbar', background=SCROLL_THUMB, troughcolor=BG,
+         bordercolor=BG, lightcolor=SCROLL_THUMB, darkcolor=SCROLL_THUMB,
          arrowcolor=INK_3, borderwidth=0, relief='flat')
     _map(style, 'Vertical.TScrollbar',
          background=[('pressed', INK_2), ('active', INK_3)])
-    _set(style, 'Horizontal.TScrollbar', background=LINE, troughcolor=BG,
-         bordercolor=BG, lightcolor=LINE, darkcolor=LINE,
-         arrowcolor=INK_3, borderwidth=0, relief='flat')
+    _set(style, 'Horizontal.TScrollbar', background=SCROLL_THUMB,
+         troughcolor=BG, bordercolor=BG, lightcolor=SCROLL_THUMB,
+         darkcolor=SCROLL_THUMB, arrowcolor=INK_3, borderwidth=0, relief='flat')
     _map(style, 'Horizontal.TScrollbar',
          background=[('pressed', INK_2), ('active', INK_3)])
 
@@ -390,8 +391,8 @@ def _configure_styles(style):
          foreground=INK, bordercolor=LINE, lightcolor=LINE, darkcolor=LINE,
          rowheight=26, font=font('body'))
     _set(style, 'Paper.Treeview.Heading', background=SURFACE,
-         foreground=INK_2, bordercolor=LINE, lightcolor=LINE, darkcolor=LINE,
-         relief='flat', font=font('meta', 'bold'))
+         foreground=INK, bordercolor=LINE, lightcolor=LINE, darkcolor=LINE,
+         relief='flat', font=font('meta', 'bold'), borderwidth=1)
     _set(style, 'Treeview.Heading', background=SURFACE, foreground=INK_2,
          bordercolor=LINE, lightcolor=LINE, darkcolor=LINE,
          relief='flat', font=font('meta', 'bold'))
@@ -438,7 +439,7 @@ def style_scrollbars(style):
                 bordercolor=BG,
                 lightcolor=BG,
                 darkcolor=BG,
-                background=LINE,
+                background=SCROLL_THUMB,
                 borderwidth=0,
                 relief='flat',
                 arrowcolor=INK_3,

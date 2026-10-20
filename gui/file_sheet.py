@@ -95,13 +95,13 @@ class FileSheet(Sheet):
         self.tree = ttk.Treeview(middle, columns=columns, show='headings',
                                   selectmode='extended')
         self.tree.heading('sel', text='')
-        self.tree.heading('name', text='名称',
+        self.tree.heading('name', text='名称', anchor='w',
                           command=lambda: self._sort_by('name'))
-        self.tree.heading('type', text='类型',
+        self.tree.heading('type', text='类型', anchor='w',
                           command=lambda: self._sort_by('type'))
-        self.tree.heading('mtime', text='修改时间',
+        self.tree.heading('mtime', text='修改时间', anchor='w',
                           command=lambda: self._sort_by('mtime'))
-        self.tree.heading('size', text='大小',
+        self.tree.heading('size', text='大小', anchor='e',
                           command=lambda: self._sort_by('size'))
         self.tree.column('sel', width=26, stretch=False, anchor='center')
         self.tree.column('name', width=200, stretch=False, anchor='w')
@@ -125,41 +125,57 @@ class FileSheet(Sheet):
         right.grid(row=0, column=2, sticky='nse', padx=(12, 0))
         ttk.Label(right, text='预览', style='Paper.TLabel', font=font('meta'),
                   foreground=INK_3).pack(anchor='w', pady=(0, 6))
-        self.preview_label = tk.Label(right, text='', bg=PAPER, fg=INK_3,
-                                      font=font('meta'), width=16, height=6,
+        # 预览区：有边框的纸面卡片，空态给明确提示
+        self.preview_frame = tk.Frame(right, bg=PAPER, width=196, height=250,
+                                      highlightbackground=LINE,
+                                      highlightthickness=1)
+        self.preview_frame.pack_propagate(False)
+        self.preview_frame.pack(anchor='w')
+        self.preview_label = tk.Label(self.preview_frame, text='还没有选中文件',
+                                      bg=PAPER, fg=INK_3, font=font('meta'),
                                       justify='center')
-        self.preview_label.pack(anchor='w')
-        self.info_label = tk.Label(right, text='选一个文件看看',
+        self.preview_label.pack(expand=True, fill='both')
+        self.info_label = tk.Label(right, text='在左侧选一个文件\n这里会显示预览',
                                    bg=PAPER, fg=INK_2, font=font('meta'),
-                                   justify='left', width=16, anchor='w')
-        self.info_label.pack(anchor='w', pady=(8, 0))
+                                   justify='left', width=20, anchor='w')
+        self.info_label.pack(anchor='w', pady=(10, 0))
 
     def _build_footer(self, confirm_text):
-        foot = self.button_frame
-        FlatButton(foot, '浏览全部文件…', command=self._browse,
-                   variant='secondary', bg=PAPER).pack(side='left', pady=3)
+        """底部两行：第一行路径，第二行选择与操作。
 
-        entry = ttk.Entry(foot, width=16, font=font('body'))
-        entry.pack(side='left', padx=(12, 8))
+        挤在一行会互相压缩（路径框被截断、按钮被切掉一半）。
+        """
+        foot = self.button_frame
+
+        top = ttk.Frame(foot, style='Paper.TFrame')
+        top.pack(fill='x', pady=(0, 8))
+        FlatButton(top, '浏览全部文件…', command=self._browse,
+                   variant='secondary', bg=PAPER).pack(side='left')
+
+        entry = ttk.Entry(top, font=font('body'))
+        entry.pack(side='left', padx=(10, 0), fill='x', expand=True)
         entry.insert(0, self.cwd)
         self.path_entry = entry
         entry.bind('<Return>', lambda e: self._confirm_entry())
         entry.bind('<FocusOut>', lambda e: self._sync_entry())
 
+        bottom = ttk.Frame(foot, style='Paper.TFrame')
+        bottom.pack(fill='x')
+
+        if self.multi:
+            FlatButton(bottom, '全选', command=self._select_all,
+                       variant='secondary', bg=PAPER).pack(side='left')
+        self.selection_label = Chip(bottom, text='', bg=ACCENT_TINT, fg=ACCENT)
+        self.selection_label.pack(side='left', padx=(10, 0))
+        self.selection_label.pack_forget()
+
         self.confirm_button = FlatButton(
-            foot, confirm_text, command=self._confirm, variant='primary',
+            bottom, confirm_text, command=self._confirm, variant='primary',
             bg=PAPER)
         self.confirm_button.configure_state(False)
-        self.confirm_button.pack(side='right', pady=3)
-        FlatButton(foot, '取消', command=self._cancel, variant='ghost',
-                   bg=PAPER).pack(side='right', padx=(0, 8), pady=3)
-        self.selection_label = Chip(foot, text='', bg=ACCENT_TINT, fg=ACCENT)
-        self.selection_label.pack(side='right', padx=(0, 12), pady=4)
-        self.selection_label.pack_forget()
-        if self.multi:
-            FlatButton(foot, '全选', command=self._select_all,
-                       variant='ghost', bg=PAPER).pack(side='left',
-                                                     padx=(8, 0), pady=3)
+        self.confirm_button.pack(side='right')
+        FlatButton(bottom, '取消', command=self._cancel, variant='ghost',
+                   bg=PAPER).pack(side='right', padx=(0, 8))
 
     # ------------------------------------------------------------------
     # 常用位置

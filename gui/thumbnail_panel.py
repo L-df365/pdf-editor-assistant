@@ -42,8 +42,11 @@ class ThumbnailPanel:
         canvas_frame = ttk.Frame(self.frame, style='Surface.TFrame')
         canvas_frame.pack(fill='both', expand=True)
 
+        # 画布必须给一个小的 width/height：Tk 画布默认申请 396px 宽，
+        # 几何管理器只按申请尺寸分配，画布会把右侧 14px 的滚动条位置挤没。
         self.canvas = tk.Canvas(canvas_frame, highlightthickness=0,
-                                bg=SURFACE, highlightbackground=SURFACE)
+                                bg=SURFACE, highlightbackground=SURFACE,
+                                width=120, height=120)
         self.scrollbar = ttk.Scrollbar(
             canvas_frame, orient='vertical', command=self.canvas.yview,
             )
@@ -54,9 +57,10 @@ class ThumbnailPanel:
                                   tags='inner')
         self.canvas.configure(yscrollcommand=self.scrollbar.set)
 
-        self.canvas.pack(side='left', fill='both', expand=True)
+        # 顺序要紧：先占住右侧 14px 给滚动条，再让画布吃掉剩下的宽度。
+        # 反过来（先 pack 画布）画布会撑满整行，滚动条压在内容上。
         self.scrollbar.pack(side='right', fill='y')
-
+        self.canvas.pack(side='left', fill='both', expand=True)
         self._context_menu = MenuPopover(self.frame, [])
 
         self.canvas.bind('<Configure>', self._on_canvas_resize)
@@ -127,7 +131,8 @@ class ThumbnailPanel:
             return
         cols = self._column_count(width)
         gutter = self.CARD_GAP * (cols - 1)
-        available = (width - gutter - 8) / cols
+        # 右侧留够余量，别让最后一张卡片被滚动条压住一条边
+        available = (width - gutter - 18) / cols
         changed = cols != self._cols
         self._cols = cols
 

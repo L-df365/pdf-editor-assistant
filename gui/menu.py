@@ -75,11 +75,12 @@ class MenuPopover:
 
     def set_items(self, items):
         self.items = items
-        if self._win is not None:
-            self.hide()
 
     def show(self, x, y):
-        self._build()
+        # 浮层只建一次：每次重建都会重绘带模糊投影的卡片图（很贵），开菜单明显发顿。
+        # 卡片图按尺寸缓存，行内容每次重画（否则命令/可用状态会变旧）。
+        self._ensure_built()
+        self._render()
         self._win.update_idletasks()
         width = self._win.winfo_reqwidth()
         height = self._win.winfo_reqheight()
@@ -94,6 +95,11 @@ class MenuPopover:
         self._win.focus_set()
         self._install_dismiss_handler()
 
+    def _ensure_built(self):
+        if self._win is not None:
+            return
+        self._build()
+
     def _install_dismiss_handler(self):
         """全局点一下菜单外面就消失（由统一的调度器处理）。"""
         _ensure_dispatch()
@@ -105,7 +111,7 @@ class MenuPopover:
             _LIVE.remove(self)
 
     def _handle_dismiss(self, event):
-        if self._win is None:
+        if self._win is None or not self._win.winfo_ismapped():
             return
         if event.type == '<Escape>':
             self.hide()
@@ -120,14 +126,18 @@ class MenuPopover:
             self.hide()
 
     def hide(self):
+        """收起浮层，但保留窗口实例（下次打开更快）。"""
         self._remove_dismiss_handler()
         if self._win is not None:
             try:
                 self._win.grab_release()
             except tk.TclError:
                 pass
-            self._win.destroy()
-        self._win = None
+            try:
+                self._win.withdraw()
+            except tk.TclError:
+                pass
+        self.active = -1
         if self.on_close:
             self.on_close()
 
@@ -142,6 +152,14 @@ class MenuPopover:
         self._canvas = tk.Canvas(self._win, highlightthickness=0, bg=PAPER)
         self._canvas.pack(fill='both', expand=True)
 
+        self._canvas.bind('<Motion>', self._on_motion)
+        self._canvas.bind('<Button-1>', self._on_click)
+        self._canvas.bind('<Button-3>', lambda e: self.hide())
+        self._win.bind('<Escape>', lambda e: self.hide())
+        self._win.bind('<Key>', self._on_key)
+
+    def _render(self):
+        """按当前条目重画菜单内容（卡片图按尺寸缓存，不重画阴影）。"""
         rows = []
         for item in self.items:
             if item.kind == 'separator':
@@ -157,9 +175,15 @@ class MenuPopover:
         # pad 是投影留白：卡片本体在 (pad, pad)，菜单内容跟着偏移 pad
         pad = self._pad = 6
         self._canvas.configure(width=width + pad * 2, height=total + pad * 2)
-        self._card_photo = rounded_photo(
-            width, total, CORNER, PAPER, LINE, 1, shadow=True,
-            root=self.parent, pad=pad)
+        key = (width, total)
+        if getattr(self, '_card_key', None) != key:
+            self._card_key = key
+            self._card_photo = rounded_photo(
+                width, total, CORNER, PAPER, LINE, 1, shadow=True,
+                root=self.parent, pad=pad)
+        self._canvas.delete('card')
+        self._canvas.delete('text')
+        self._canvas.delete('hover')
         self._canvas.create_image(0, 0, image=self._card_photo,
                                   anchor='nw', tags='card')
 
@@ -187,12 +211,6 @@ class MenuPopover:
         # 明确画布尺寸：否则浮层窗口会比菜单大一圈，露出白底
         self._win.update_idletasks()
         self._win.geometry('{}x{}'.format(width + pad * 2, total + pad * 2))
-
-        self._canvas.bind('<Motion>', self._on_motion)
-        self._canvas.bind('<Button-1>', self._on_click)
-        self._canvas.bind('<Button-3>', lambda e: self.hide())
-        self._win.bind('<Escape>', lambda e: self.hide())
-        self._win.bind('<Key>', self._on_key)
 
     def _draw_item(self, item, y, width, size):
         color = DANGER if item.danger else INK

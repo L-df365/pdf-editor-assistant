@@ -13,7 +13,7 @@ from gui.theme import (ACCENT, ACCENT_DEEP, ACCENT_TINT, DANGER, DANGER_TINT,
 
 RADIUS = 6
 PAD_X = 12
-PAD_Y = 5
+PAD_Y = 4
 
 # 变体: (填充, 描边, 文字, 悬停填充, 悬停文字)
 VARIANTS = {
@@ -132,13 +132,22 @@ class FlatButton(tk.Canvas):
         width = text_w + icon_w + gap + PAD_X * 2
         if self._width:
             width = max(self._width, width)
-        height = max(self._font.metrics('linespace'), 18) + PAD_Y * 2
+        # 用 ascent+descent 而不是 linespace：中日韩字体的行高很大，
+        # 直接用 linespace 会让按钮看起来又高又空。
+        text_h = (self._font.metrics('ascent')
+                  + self._font.metrics('descent'))
+        # 中日韩字体的字面框偏大，封顶后按钮更紧凑
+        height = max(min(int(text_h), 18), 16) + PAD_Y * 2
         return int(width), int(height)
 
     def _redraw(self):
         self.delete('all')
         width, height = self._measure()
         self.configure(width=width, height=height)
+        # 实际分配尺寸可能比请求的大（父容器给了额外高度），
+        # 背景按实际尺寸画、文字按实际高度居中，否则字会偏上。
+        alloc_w = max(self.winfo_width(), width)
+        alloc_h = max(self.winfo_height(), height)
 
         fill, border, fg, hover_fill, hover_fg = VARIANTS.get(
             self._variant, VARIANTS['secondary'])
@@ -153,22 +162,23 @@ class FlatButton(tk.Canvas):
 
         # 圆角用 PIL 渲染成抗锯齿的图（Canvas 画的圆角是硬边，锯齿重）
         if fill or border:
-            self._photo = rounded_photo(width, height, RADIUS, fill, border)
+            self._photo = rounded_photo(alloc_w, alloc_h, RADIUS, fill, border)
             self.create_image(0, 0, image=self._photo, anchor='nw')
         if self._focus and self._state == 'normal':
             self._focus_photo = rounded_photo(
-                width - 4, height - 4, RADIUS - 1, None, ACCENT, 2)
+                alloc_w - 4, alloc_h - 4, RADIUS - 1, None, ACCENT, 2)
             self.create_image(2, 2, image=self._focus_photo, anchor='nw')
 
         x = PAD_X
+        mid = alloc_h / 2
         if self._icon:
-            self.create_text(x, height / 2, text=self._icon, anchor='w',
+            self.create_text(x, mid, text=self._icon, anchor='w',
                              fill=fg, font=self._icon_font)
             x += self._icon_font.measure(self._icon)
             if self._text:
                 x += 5
         if self._text:
-            self.create_text(x, height / 2, text=self._text, anchor='w',
+            self.create_text(x, mid, text=self._text, anchor='w',
                              fill=fg, font=self._font)
 
 
@@ -244,13 +254,15 @@ class RoundedCard(tk.Frame):
         # 内容要按圆角半径内缩：内容的矩形背景会盖住卡片圆角，
         # 不内缩的话看起来就是"圆角错位/缺一块"。
         shadow_pad = self.IMAGE_PAD if self._shadow else 0
-        card_w = width + self._radius * 2
-        card_h = height + self._radius * 2
+        # 内容只内缩一点（不是整个半径），否则卡片会比内容高出两倍半径
+        inset = 3
+        card_w = width + inset * 2
+        card_h = height + inset * 2
         self._canvas.configure(width=card_w + shadow_pad * 2,
                               height=card_h + shadow_pad * 2)
         self._canvas.coords(self._window,
-                             shadow_pad + self._radius,
-                             shadow_pad + self._radius)
+                             shadow_pad + inset,
+                             shadow_pad + inset)
         self._photo = rounded_photo(card_w, card_h, self._radius, self._fill,
                                     self._outline, 1, self._shadow,
                                     root=self.winfo_toplevel(),

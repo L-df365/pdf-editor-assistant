@@ -84,8 +84,10 @@ class PreviewPanel:
         canvas_frame = ttk.Frame(self.frame, style='Stage.TFrame')
         canvas_frame.pack(fill='both', expand=True)
 
+        # width/height 给小值：Tk 画布默认申请 396x278，会撑破布局
         self.canvas = tk.Canvas(canvas_frame, highlightthickness=0,
-                                bg=STAGE, highlightbackground=STAGE)
+                                bg=STAGE, highlightbackground=STAGE,
+                                width=120, height=120)
         self.h_scroll = ttk.Scrollbar(
             canvas_frame, orient='horizontal', command=self.canvas.xview,
             )
@@ -239,6 +241,11 @@ class PreviewPanel:
             max(self._canvas_height, y + pix.height + 24)))
         self.canvas.xview_moveto(0)
         self.canvas.yview_moveto(0)
+        # 适应模式下页面永远放得下，横向滚动条只会变成一条碍眼的灰带
+        if self._mode == 'fit':
+            self.h_scroll.grid_remove()
+        else:
+            self.h_scroll.grid()
 
         total = doc.page_count
         self.counter.configure(text='{:02d} / {:02d}'.format(page_num + 1,
