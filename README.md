@@ -2,16 +2,23 @@
 
 [中文文档](README_CN.md)
 
-**The only open-source PDF page manager with visual GUI** — insert Word/Excel/images into PDF at any position, auto-convert to PDF pages, with real-time preview.
+**An open-source PDF page manager with a visual GUI** — insert Word/Excel/images into PDF at any position, auto-convert to PDF pages, with real-time preview.
 
-> 💡 Why this exists: Tools like `pdfarranger`, `pdf2pdf`, `qpdf` can merge PDFs, but none offer a **visual GUI** where you can see page thumbnails, drag to reorder, and insert external files at specific positions. This fills that gap.
+> 💡 Why this exists: `pdfarranger` can reorder pages, `pdf2pdf` and `qpdf` can merge
+> PDFs, but no open-source tool puts *drag-to-reorder* and *insert a Word/Excel/image
+> at a given position* in the same window. That is the gap this fills.
+
+![Workbench](docs/ui/01-工作台.png)
 
 ## Features
 
-- 📄 **Visual Page Management** — See all pages as thumbnails, drag to reorder
+- 📄 **Visual Page Management** — Thumbnail rail, drag to reorder (with a drop indicator)
 - 📝 **Insert Any File** — Word (.docx), Excel (.xlsx), Images (.png/.jpg) → Auto-convert to PDF → Insert at any position
+  - **Batch insert**: select several files at once, choose the position (after current page / end of document / before a given page)
 - 🔄 **Page Operations** — Rotate, delete, move pages
-- 👁️ **Real-time Preview** — Fit-to-width / 100% zoom modes
+- ↩️ **Undo / Redo** — 5 steps of history, Ctrl+Z / Ctrl+Shift+Z
+- 👁️ **Real-time Preview** — Fit / 50% / 100% / 200% zoom
+- 🗂️ **Built-in File Panel** — Pinned places, multi-select, type badges, recent files
 - 💾 **Save** — Save / Save As
 
 ## Quick Start
@@ -57,13 +64,13 @@ python3 main.py
 | Delete Pages | ✅ | ✅ | ❌ | ✅ | ✅ |
 | Fit-to-width Preview | ✅ | ❌ | ❌ | ❌ | ✅ |
 | Open Source | ✅ | ✅ | ✅ | ✅ | ❌ |
-| Install Size | ~120MB | ~5MB | ~1MB | ~2MB | ~200MB |
+| Install Size | ~56MB | ~5MB | ~1MB | ~2MB | ~200MB |
 
 ## Why Not Just Use Foxit/WPS?
 
 1. **Privacy** — Your documents never leave your machine
 2. **Free** — No license fees, no subscriptions
-3. **Lightweight** — ~120MB vs 200MB+
+3. **Lightweight** — ~1MB for the app itself (~56MB with dependencies) vs 200MB+
 4. **Automatable** — Can be integrated into workflows via CLI
 5. **Customizable** — Modify to fit your specific needs
 
@@ -114,22 +121,36 @@ pdf-editor-assistant/
 ├── main.py              # Entry point
 ├── install.sh           # One-click installer
 ├── uninstall.sh         # Uninstaller
-├── requirements.txt     # Python dependencies
+├── requirements.txt     # Python dependencies (PyMuPDF + Pillow only)
 ├── requirements-wps.txt # Optional: WPS backend dependency
-├── core/
+├── core/                # UI-independent
 │   ├── converter.py     # Switchable backend facade
-│   ├── settings.py      # Persist the selected backend
+│   ├── settings.py      # Persist the selected backend and recent files
+│   ├── formats.py       # Supported file types (single source of truth)
 │   ├── backends/        # Backend implementations
 │   │   ├── base.py      # Common interface
 │   │   ├── installer.py # On-demand WPS / LibreOffice install
 │   │   ├── wps.py       # Silent WPS backend
 │   │   ├── wps_worker.py# Isolated WPS conversion process
 │   │   └── libreoffice.py
-│   └── pdf_document.py  # PDF operations (PyMuPDF)
-└── gui/
-    ├── main_window.py   # Main window
-    ├── thumbnail_panel.py # Thumbnail panel with drag-drop
-    └── preview_panel.py # Preview panel with zoom
+│   └── pdf_document.py  # PDF operations, undo stack (PyMuPDF)
+├── gui/                 # UI layer (tkinter + self-drawn widgets)
+│   ├── main_window.py   # Main window, top bar, menus
+│   ├── theme.py         # Design tokens and ttk styles
+│   ├── widgets.py       # Rounded buttons, chips, rounded cards
+│   ├── draw.py          # Anti-aliased rounded-corner rendering
+│   ├── menu.py          # Popover menus
+│   ├── feedback.py      # Toast / confirm / error / info panels
+│   ├── thumbnail_panel.py # Page rail: thumbnails, drag-drop, context menu
+│   ├── preview_panel.py # Preview: stage, zoom, floating action bar
+│   ├── file_sheet.py    # File panel
+│   ├── insert_sheet.py  # Insert-position panel
+│   ├── backend_dialog.py# Conversion backend settings
+│   └── empty_state.py   # Empty state
+├── docs/
+│   ├── design-system.md # Design system
+│   └── ui/              # Screenshots
+└── tools/uitest.py      # UI self-test: synthesised real mouse events
 ```
 
 ## Tech Stack
@@ -143,7 +164,9 @@ pdf-editor-assistant/
 
 ## Roadmap
 
-- [ ] Batch insert multiple files
+- [x] Batch insert multiple files (multi-select in the file panel)
+- [x] Undo / redo
+- [ ] Printing (batch print, per-item duplex and colour)
 - [ ] Page cropping
 - [ ] Watermark/stamp support
 - [ ] Page numbering

@@ -1,15 +1,22 @@
 # PDF 内嵌编辑助手
 
-**唯一带可视化界面的开源 PDF 页面管理器** — 在任意位置插入 Word/Excel/图片，自动转换为 PDF 页面，实时预览。
+**开源的带可视化界面的 PDF 页面管理器** — 在任意位置插入 Word/Excel/图片，自动转换为 PDF 页面，实时预览。
 
-> 💡 为什么要做这个：pdfarranger、pdf2pdf、qpdf 都能合并 PDF，但都没有**可视化界面**让你看到页面缩略图、拖拽排序、在指定位置插入外部文件。这个工具填补了这个空白。
+> 💡 为什么要做这个：pdfarranger 能拖拽排序，pdf2pdf、qpdf 能合并 PDF，但没有一个
+> 开源工具能把「拖拽排序」和「在指定位置插入 Word/Excel/图片」放在同一个界面里做。
+> 这个工具补的就是这一块。
+
+![工作台](docs/ui/01-工作台.png)
 
 ## 功能特性
 
-- 📄 **可视化页面管理** — 缩略图显示所有页面，拖拽排序
+- 📄 **可视化页面管理** — 页面轨缩略图，拖拽排序（带落点指示线）
 - 📝 **插入任意文件** — Word (.docx)、Excel (.xlsx)、图片 (.png/.jpg) → 自动转换为 PDF → 插入到任意位置
+  - 支持**一次选多个文件**批量插入，插入位置可选：当前页之后 / 文末 / 指定页之前
 - 🔄 **页面操作** — 旋转、删除、移动页面
-- 👁️ **实时预览** — 适应窗口 / 100% 缩放模式
+- ↩️ **撤销 / 重做** — 5 步历史，快捷键 Ctrl+Z / Ctrl+Shift+Z
+- 👁️ **实时预览** — 适应窗口 / 50% / 100% / 200% 缩放
+- 🗂️ **自绘文件面板** — 常用位置置顶、多选、类型徽标、最近文件
 - 💾 **保存** — 保存 / 另存为
 
 ## 快速开始
@@ -55,13 +62,13 @@ python3 main.py
 | 删除页面 | ✅ | ✅ | ❌ | ✅ | ✅ |
 | 适应窗口预览 | ✅ | ❌ | ❌ | ❌ | ✅ |
 | 开源免费 | ✅ | ✅ | ✅ | ✅ | ❌ |
-| 安装体积 | ~120MB | ~5MB | ~1MB | ~2MB | ~200MB |
+| 安装体积 | ~56MB | ~5MB | ~1MB | ~2MB | ~200MB |
 
 ## 为什么不用福昕/WPS？
 
 1. **隐私安全** — 文件不会离开你的电脑
 2. **完全免费** — 无授权费，无订阅
-3. **轻量级** — ~120MB vs 200MB+
+3. **轻量级** — 应用本体约 1MB（含依赖约 56MB）vs 200MB+
 4. **可自动化** — 可集成到工作流中
 5. **可定制** — 根据需求修改
 
@@ -107,36 +114,64 @@ pdf-editor-assistant/
 ├── main.py              # 程序入口
 ├── install.sh           # 一键安装脚本
 ├── uninstall.sh         # 卸载脚本
-├── requirements.txt     # Python 依赖
+├── requirements.txt     # Python 依赖（只有 PyMuPDF 和 Pillow）
 ├── requirements-wps.txt # 可选：WPS 后端依赖
-├── core/
+├── core/                # 与界面无关
 │   ├── converter.py     # 转换后端门面（可切换）
-│   ├── settings.py      # 记住所选后端
+│   ├── settings.py      # 记住所选后端与最近文件
+│   ├── formats.py       # 支持的文件类型（唯一来源）
 │   ├── backends/        # 后端实现
 │   │   ├── base.py      # 统一接口
 │   │   ├── installer.py # 按需安装 WPS / LibreOffice
 │   │   ├── wps.py       # WPS 静默后端
 │   │   ├── wps_worker.py# WPS 独立转换进程
 │   │   └── libreoffice.py
-│   └── pdf_document.py  # PDF 操作（PyMuPDF）
-└── gui/
-    ├── main_window.py   # 主窗口
-    ├── thumbnail_panel.py # 缩略图面板（拖拽）
-    └── preview_panel.py # 预览面板（缩放）
+│   └── pdf_document.py  # PDF 操作、撤销栈（PyMuPDF）
+├── gui/                 # 界面层（Tkinter + 自绘组件）
+│   ├── main_window.py   # 主窗口、顶栏、菜单
+│   ├── theme.py         # 设计令牌与 ttk 样式
+│   ├── widgets.py       # 圆角按钮、色块标签、圆角卡片
+│   ├── draw.py          # 抗锯齿圆角渲染
+│   ├── menu.py          # 浮层菜单
+│   ├── feedback.py      # 轻提示 / 确认 / 错误 / 信息面板
+│   ├── thumbnail_panel.py # 页面轨：缩略图、拖拽排序、右键菜单
+│   ├── preview_panel.py # 预览：台面、缩放、浮动动作条
+│   ├── file_sheet.py    # 文件选择面板
+│   ├── insert_sheet.py  # 插入位置面板
+│   ├── backend_dialog.py# 转换后端设置
+│   └── empty_state.py   # 空状态
+├── docs/
+│   ├── design-system.md # 设计系统
+│   └── ui/              # 界面截图
+└── tools/uitest.py      # 界面自测：合成真实鼠标事件
 ```
 
 ## 技术栈
 
 | 组件 | 技术 |
 |------|------|
-| 界面 | tkinter |
+| 界面 | tkinter（Python 自带）+ PIL 抗锯齿自绘圆角/阴影 |
 | PDF 渲染 | PyMuPDF |
 | 文件转换 | 本机 WPS Office (pywpsrpc) / LibreOffice headless（按需安装） |
 | 图片处理 | Pillow |
 
+界面不使用任何第三方 GUI 框架，运行时依赖只有 PyMuPDF 与 Pillow 两个。
+
+## 界面
+
+| 截图 | 说明 |
+|---|---|
+| [工作台](docs/ui/01-工作台.png) | 主界面：顶栏 + 页面轨 + 台面 + 浮动动作条 |
+| [右键菜单](docs/ui/02-右键菜单.png) | 页面右键菜单（按当前页给出上下文操作） |
+| [页面轨](docs/ui/03-页面轨.png) | 页面轨与滚动条 |
+| [文件面板](docs/ui/04-文件面板.png) | 文件选择面板（多选 + 已选计数） |
+| [空状态](docs/ui/05-空状态.png) | 未打开文档时的空状态 |
+
 ## 路线图
 
-- [ ] 批量插入多个文件
+- [x] 批量插入多个文件（文件面板多选）
+- [x] 撤销 / 重做
+- [ ] 打印（批量打印、逐项单双面与颜色）
 - [ ] 页面裁剪
 - [ ] 水印/印章支持
 - [ ] 页码编号
