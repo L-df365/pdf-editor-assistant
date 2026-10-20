@@ -802,6 +802,7 @@ class MainWindow:
 
     def _browse_open(self, directory):
         return filedialog.askopenfilename(
+            parent=self.root,
             title='打开 PDF 文件',
             initialdir=directory or HOME_DIR,
             filetypes=[('PDF 文件', '*.pdf'), ('所有文件', '*.*')])
@@ -952,6 +953,7 @@ class MainWindow:
 
     def _browse_insert(self, directory):
         return filedialog.askopenfilename(
+            parent=self.root,
             title='选择要插入的文件',
             initialdir=directory or HOME_DIR,
             filetypes=formats.filetypes())

@@ -231,6 +231,38 @@ def run(app):
         sheet.destroy()
         pump(app, 0.2)
 
+    @step
+    def s10_browse_button():
+        """「浏览全部文件…」：开系统对话框前要放开 grab、收起浮层，
+        否则对话框开不出来，整个界面像卡死。"""
+        from gui.file_sheet import FileSheet
+
+        def fake_browse(directory):
+            return '/tmp/pyw/many.pdf'
+
+        sheet = FileSheet(app.root, mode='insert',
+                          current_path=app.doc.filepath,
+                          confirm_text='插入', on_browse=fake_browse)
+        sheet._place(app.root)
+        pump(app, 0.3)
+        button = None
+        for row in sheet.button_frame.winfo_children():
+            for child in row.winfo_children():
+                if getattr(child, '_text', '') == '浏览全部文件…':
+                    button = child
+        check('找得到浏览全部文件按钮', button is not None, '没找到')
+        if button is not None:
+            click(app, button)
+            pump(app, 0.3)
+            check('浏览后浮层还在', sheet.winfo_ismapped(), '浮层不见了')
+            check('浏览后选中了文件',
+                  '/tmp/pyw/many.pdf' in sheet.selected,
+                  str(sheet.selected))
+            grab = app.root.tk.call('grab', 'current')
+            check('浏览后 grab 回到浮层', 'filesheet' in str(grab), str(grab))
+        sheet.destroy()
+        pump(app, 0.2)
+
     def stepper():
         if not steps:
             print('\n===== 结果 =====')

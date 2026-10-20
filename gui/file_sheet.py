@@ -396,9 +396,28 @@ class FileSheet(Sheet):
             self._confirm()
 
     def _browse(self):
+        """调系统文件对话框。
+
+        对话框是另一个模态窗口：浮层带着 grab 的时候，对话框开在浮层底下、
+        拿不到输入，整个界面被 Tk 的 grab 提示压暗 —— 看起来就是"卡住"。
+        所以先把浮层收起来、放开 grab，用完再恢复。
+        """
         if not self.on_browse:
             return
-        path = self.on_browse(self.directory)
+        self.withdraw()
+        try:
+            self.grab_release()
+        except tk.TclError:
+            pass
+        try:
+            path = self.on_browse(self.directory)
+        finally:
+            self.deiconify()
+            try:
+                self.grab_set()
+                self.focus_set()
+            except tk.TclError:
+                pass
         if not path:
             return
         self.selected = {path}
