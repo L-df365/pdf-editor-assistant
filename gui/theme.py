@@ -227,6 +227,48 @@ def _configure_styles(style):
                      ('active', ACCENT_TINT)],
          foreground=[('disabled', INK_3), ('active', DANGER)])
 
+    # 表面变体：与所在面板同色，避免出现灰色方块
+    _set(style, 'Surface.Ghost.TButton', background=SURFACE,
+         foreground=INK_2, borderwidth=0, relief='flat', focuscolor=ACCENT,
+         padding=(SPACE['sm'], SPACE['xs']), anchor='center',
+         font=font('body'))
+    _map(style, 'Surface.Ghost.TButton',
+         background=[('disabled', SURFACE), ('pressed', LINE_SOFT),
+                     ('active', ACCENT_TINT)],
+         foreground=[('disabled', INK_3), ('active', INK)])
+
+    _set(style, 'Surface.Danger.TButton', background=SURFACE,
+         foreground=DANGER, borderwidth=0, relief='flat', focuscolor=ACCENT,
+         padding=(SPACE['sm'], SPACE['xs']), anchor='center',
+         font=font('body'))
+    _map(style, 'Surface.Danger.TButton',
+         background=[('disabled', SURFACE), ('pressed', LINE_SOFT),
+                     ('active', ACCENT_TINT)],
+         foreground=[('disabled', INK_3), ('active', DANGER)])
+
+    _set(style, 'Paper.Ghost.TButton', background=PAPER, foreground=INK_2,
+         borderwidth=0, relief='flat', focuscolor=ACCENT,
+         padding=(SPACE['sm'], SPACE['xs']), anchor='center',
+         font=font('body'))
+    _map(style, 'Paper.Ghost.TButton',
+         background=[('disabled', PAPER), ('pressed', LINE_SOFT),
+                     ('active', ACCENT_TINT)],
+         foreground=[('disabled', INK_3), ('active', INK)])
+
+    # 分段控件（缩放档位）
+    _set(style, 'Segment.TButton', background=SURFACE, foreground=INK_2,
+         borderwidth=0, relief='flat', focuscolor=ACCENT,
+         padding=(SPACE['sm'], 2), anchor='center', font=font('meta'))
+    _map(style, 'Segment.TButton',
+         background=[('pressed', LINE_SOFT), ('active', ACCENT_TINT)],
+         foreground=[('active', INK)])
+    _set(style, 'SegmentOn.TButton', background=ACCENT_TINT,
+         foreground=ACCENT, borderwidth=0, relief='flat', focuscolor=ACCENT,
+         padding=(SPACE['sm'], 2), anchor='center',
+         font=font('meta', 'bold'))
+    _map(style, 'SegmentOn.TButton',
+         background=[('pressed', LINE_SOFT), ('active', ACCENT_TINT)])
+
     # 输入
     _set(style, 'TEntry', fieldbackground=PAPER, background=PAPER,
          foreground=INK, bordercolor=LINE, lightcolor=LINE, darkcolor=LINE,

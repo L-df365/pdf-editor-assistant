@@ -1,38 +1,62 @@
 import tkinter as tk
 from tkinter import ttk
 
-from gui.theme import STAGE, font
+from gui.theme import ACCENT, INK_2, LINE, STAGE, SURFACE, font
+
+#: 缩放档位：(显示名, 取值)
+ZOOM_MODES = (
+    ('适应', 'fit'),
+    ('50%', 0.5),
+    ('100%', 1.0),
+    ('200%', 2.0),
+)
+
+SHADOW_TONES = ('#C3CBC9', '#CCD3D1', '#D3D9D7')
 
 
 class PreviewPanel:
-    """右侧预览面板，显示当前选中页面的大图。"""
+    """右侧预览面板：页面预览 + 缩放分段 + 页码计数。"""
 
-    def __init__(self, parent):
-        self.frame = ttk.Frame(parent)
+    def __init__(self, parent, on_rotate=None, on_delete=None,
+                 on_insert=None):
+        self.frame = ttk.Frame(parent, style='Surface.TFrame')
         self.current_photo = None
         self.zoom = 1.0
         self._fit_width = True
         self._last_doc = None
         self._last_page = 0
+        self._mode = 'fit'
+        self.on_rotate = on_rotate
+        self.on_delete = on_delete
+        self.on_insert = on_insert
 
-        toolbar = ttk.Frame(self.frame)
-        toolbar.pack(fill='x', padx=5, pady=3)
+        self._build_action_row()
+        self._build_canvas()
+        self._build_counter_bar()
 
-        self.btn_fit = ttk.Button(toolbar, text='适应窗口',
-                                  command=self._fit_to_window)
-        self.btn_fit.pack(side='left', padx=2)
-        self.btn_100 = ttk.Button(toolbar, text='100%',
-                                  command=self._zoom_100)
-        self.btn_100.pack(side='left', padx=2)
+    # ------------------------------------------------------------------
 
-        self.page_label = ttk.Label(toolbar, text='', style='Num.TLabel',
-                                    font=font('num'))
-        self.page_label.pack(side='right', padx=10)
+    def _build_action_row(self):
+        bar = ttk.Frame(self.frame, style='Surface.TFrame')
+        bar.pack(fill='x')
+        ttk.Separator(self.frame, orient='horizontal').pack(fill='x')
 
-        sep = ttk.Separator(self.frame, orient='horizontal')
-        sep.pack(fill='x')
+        def action(text, command, style='Segment.TButton'):
+            ttk.Button(bar, text=text, style=style,
+                       command=command).pack(side='left', padx=2, pady=3)
 
-        canvas_frame = ttk.Frame(self.frame)
+        if self.on_rotate:
+            action('↺ 逆时针', lambda: self.on_rotate(-90))
+            action('↻ 顺时针', lambda: self.on_rotate(90))
+        if self.on_insert:
+            action('＋ 在此后插入', self.on_insert)
+        if self.on_delete:
+            action('⌫ 删除此页', self.on_delete,
+                   style='Surface.Danger.TButton')
+
+
+    def _build_canvas(self):
+        canvas_frame = ttk.Frame(self.frame, style='Stage.TFrame')
         canvas_frame.pack(fill='both', expand=True)
 
         self.canvas = tk.Canvas(canvas_frame, highlightthickness=0,
@@ -54,54 +78,116 @@ class PreviewPanel:
                          lambda e: self.canvas.yview_scroll(-1, 'units'))
         self.canvas.bind('<Button-5>',
                          lambda e: self.canvas.yview_scroll(1, 'units'))
-
         self.canvas.bind('<Configure>', self._on_canvas_resize)
         self._canvas_width = 800
         self._canvas_height = 600
 
+    def _build_counter_bar(self):
+        bar = ttk.Frame(self.frame, style='Surface.TFrame')
+        bar.pack(fill='x')
+        ttk.Separator(self.frame, orient='horizontal').pack(fill='x', side='top')
+        self.counter = ttk.Label(bar, text='', style='Num.TLabel',
+                                 font=font('num'), padding=(8, 3))
+        self.counter.pack(side='right')
+
+        self.zoom_frame = ttk.Frame(bar, style='Surface.TFrame')
+        self.zoom_frame.pack(side='left', padx=2, pady=2)
+        self._zoom_buttons = {}
+        for label, value in ZOOM_MODES:
+            btn = ttk.Button(self.zoom_frame, text=label,
+                             style='Segment.TButton',
+                             command=lambda v=value: self.set_zoom(v))
+            btn.pack(side='left')
+            self._zoom_buttons[value] = btn
+        self._paint_zoom()
+
     def pack(self, **kwargs):
         self.frame.pack(**kwargs)
+
+    # ------------------------------------------------------------------
 
     def _on_canvas_resize(self, event):
         self._canvas_width = event.width
         self._canvas_height = event.height
-        if self.current_photo:
-            self._render_preview()
+        if self._last_doc is not None:
+            self._render_preview(event.width, event.height)
+
+    def set_zoom(self, mode):
+        self._mode = mode
+        self._fit_width = mode == 'fit'
+        self._paint_zoom()
+        self._render_preview()
+
+    def _paint_zoom(self):
+        for value, btn in self._zoom_buttons.items():
+            btn.configure(style='SegmentOn.TButton' if value == self._mode
+                          else 'Segment.TButton')
 
     def show_page(self, pdf_doc, page_num):
         if not pdf_doc or not pdf_doc.doc:
             return
-        from PIL import Image, ImageTk
-        self.page_label.configure(text=f'第 {page_num + 1} 页')
+        self._last_doc = pdf_doc
+        self._last_page = page_num
+        if self.canvas.winfo_width() <= 1:
+            # 窗口尚未布局完成，等空闲时再渲染，保证用真实画布尺寸
+            self.canvas.after_idle(self._render_preview)
+        else:
+            self._render_preview()
 
-        max_w = max(self._canvas_width - 40, 200)
-        max_h = max(self._canvas_height - 40, 200)
-        pix, zoom = pdf_doc.get_page_image(page_num,
-                                            max_width=max_w,
-                                            max_height=max_h,
-                                            fit_width=self._fit_width)
+    def _render_preview(self, width=None, height=None):
+        doc = self._last_doc
+        page_num = self._last_page
+        if not doc or not doc.doc:
+            return
+        from PIL import Image, ImageTk
+
+        if width:
+            self._canvas_width = width
+        if height:
+            self._canvas_height = height
+        else:
+            live_w = self.canvas.winfo_width()
+            live_h = self.canvas.winfo_height()
+            if live_w > 1:
+                self._canvas_width = live_w
+            if live_h > 1:
+                self._canvas_height = live_h
+
+        if self._mode == 'fit':
+            max_w = max(self._canvas_width - 48, 200)
+            max_h = max(self._canvas_height - 48, 200)
+            pix, zoom = doc.get_page_image(page_num, max_width=max_w,
+                                           max_height=max_h, fit_width=False)
+        else:
+            zoom = float(self._mode)
+            pix = doc.get_page_at_zoom(page_num, zoom)
         self.zoom = zoom
 
         img = Image.frombytes('RGB', [pix.width, pix.height], pix.samples)
         self.current_photo = ImageTk.PhotoImage(img)
 
-        x = max((self._canvas_width - pix.width) // 2, 10)
         self.canvas.delete('all')
-        self.canvas.create_image(x, 10, anchor='nw',
+        x = max((self._canvas_width - pix.width) // 2, 12)
+        y = max((self._canvas_height - pix.height) // 2, 12)
+
+        for offset, tone in enumerate(reversed(SHADOW_TONES), start=1):
+            self.canvas.create_rectangle(
+                x + offset, y + offset,
+                x + pix.width + offset, y + pix.height + offset,
+                fill=tone, outline='')
+        self.canvas.create_image(x, y, anchor='nw',
                                  image=self.current_photo, tags='preview')
-        self.canvas.configure(scrollregion=self.canvas.bbox('all'))
+        # 滚动区域覆盖整个画布并归零视图，避免内容被挤到一侧
+        self.canvas.configure(scrollregion=(
+            0, 0,
+            max(self._canvas_width, x + pix.width + 24),
+            max(self._canvas_height, y + pix.height + 24)))
+        self.canvas.xview_moveto(0)
+        self.canvas.yview_moveto(0)
 
-    def _fit_to_window(self):
-        self._fit_width = True
-        self._render_preview()
-
-    def _zoom_100(self):
-        self._fit_width = False
-        self._render_preview()
-
-    def _render_preview(self):
-        if self._last_doc and self._last_doc.doc:
-            self.show_page(self._last_doc, self._last_page)
+        total = doc.page_count
+        self.counter.configure(text='{:02d} / {:02d}'.format(page_num + 1,
+                                                             total))
 
     def set_last(self, doc, page_num):
         self._last_doc = doc

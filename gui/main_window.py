@@ -9,12 +9,26 @@ import threading
 from core.backends import installer
 from core.pdf_document import PDFDocument
 from core.settings import load_backend, save_backend
-from gui.theme import init_theme
+from gui.backend_dialog import BackendDialog
+from gui.theme import (ACCENT, INK_2, INK_3, MARKER, OK, SURFACE,
+                        font, init_theme)
 from gui.thumbnail_panel import ThumbnailPanel
 from gui.preview_panel import PreviewPanel
 
 
 HOME_DIR = '/home/user' if os.path.isdir('/home/user') else os.path.expanduser('~')
+
+
+def _human_size(size):
+    if not size:
+        return '0 B'
+    value = float(size)
+    for unit in ('B', 'KB', 'MB', 'GB'):
+        if value < 1024 or unit == 'GB':
+            if unit == 'B':
+                return '{:.0f} B'.format(value)
+            return '{:.1f} {}'.format(value, unit)
+        value /= 1024.0
 
 FILETYPES = [
     ('所有支持的文件',
@@ -60,7 +74,7 @@ class MainWindow:
         self.root.protocol('WM_DELETE_WINDOW', self._on_close)
 
         self._build_menu()
-        self._build_toolbar()
+        self._build_document_row()
         self._build_main_area()
         self._build_statusbar()
         self._bind_shortcuts()
@@ -88,15 +102,8 @@ class MainWindow:
         menubar.add_cascade(label='编辑', menu=edit_menu)
 
         settings_menu = tk.Menu(menubar, tearoff=0)
-        backend_menu = tk.Menu(settings_menu, tearoff=0)
-        self._backend_menu = backend_menu
-        for name, label in self._backend_choices_for_ui():
-            backend_menu.add_radiobutton(
-                label=label,
-                value=name,
-                variable=self._backend_var,
-                command=self._on_backend_changed)
-        settings_menu.add_cascade(label='转换后端', menu=backend_menu)
+        settings_menu.add_command(label='转换后端…',
+                                  command=self._open_backend_dialog)
         menubar.add_cascade(label='设置', menu=settings_menu)
 
         help_menu = tk.Menu(menubar, tearoff=0)
@@ -106,68 +113,69 @@ class MainWindow:
 
         self.root.config(menu=menubar)
 
-    def _build_toolbar(self):
-        toolbar = ttk.Frame(self.root, style='Surface.TFrame')
-        toolbar.pack(fill='x')
+    def _build_document_row(self):
+        """文档行：文档名 + 未保存标记 + 保存 + 溢出菜单。"""
+        row = ttk.Frame(self.root, style='Surface.TFrame')
+        row.pack(fill='x')
         ttk.Separator(self.root, orient='horizontal').pack(fill='x')
 
-        ttk.Button(toolbar, text='打开 PDF',
-                   command=self.open_pdf).pack(side='left', padx=4, pady=3)
-        ttk.Button(toolbar, text='插入文件',
-                   command=self.insert_file_dialog).pack(
-                       side='left', padx=4, pady=3)
-        ttk.Separator(toolbar, orient='vertical').pack(
-            side='left', fill='y', padx=6, pady=6)
-        ttk.Button(toolbar, text='左旋',
-                   command=lambda: self.rotate_page(-90)).pack(
-                       side='left', padx=4, pady=3)
-        ttk.Button(toolbar, text='右旋',
-                   command=lambda: self.rotate_page(90)).pack(
-                       side='left', padx=4, pady=3)
-        ttk.Separator(toolbar, orient='vertical').pack(
-            side='left', fill='y', padx=6, pady=6)
-        ttk.Button(toolbar, text='删除当前页',
-                   command=self.delete_current_page).pack(
-                       side='left', padx=4, pady=3)
-        ttk.Button(toolbar, text='保存', style='Primary.TButton',
-                   command=self.save_pdf).pack(
-                       side='right', padx=4, pady=3)
+        self._doc_name = ttk.Label(
+            row, text='未命名', style='Surface.TLabel',
+            font=font('h1', 'bold'))
+        self._doc_name.pack(side='left', padx=(12, 6), pady=6)
 
-        self._backend_labels = {
-            label: name
-            for name, label in self._backend_choices_for_ui()}
-        self._backend_display = tk.StringVar(
-            value=self._label_for_backend(
-                self.doc.converter.requested_name))
-        self._backend_combo = ttk.Combobox(
-            toolbar,
-            textvariable=self._backend_display,
-            values=list(self._backend_labels),
-            state='readonly',
-            width=24)
-        self._backend_combo.pack(side='right', padx=4, pady=3)
-        self._backend_combo.bind(
-            '<<ComboboxSelected>>', self._on_backend_combo)
-        ttk.Label(toolbar, text='转换后端:').pack(
-            side='right', padx=(8, 2), pady=3)
+        self._dirty_dot = tk.Canvas(row, width=10, height=10,
+                                    highlightthickness=0, bg=SURFACE)
+        self._dirty_dot.pack(side='left')
+        self._paint_dirty()
+
+        ttk.Button(row, text='⋯', style='Surface.Ghost.TButton',
+                   command=self._show_overflow_menu).pack(
+                       side='right', padx=2, pady=6)
+        ttk.Button(row, text='保存', style='Primary.TButton',
+                   command=self.save_pdf).pack(
+                       side='right', padx=(2, 8), pady=6)
+
+    def _paint_dirty(self):
+        self._dirty_dot.delete('all')
+        if self.doc.is_modified:
+            self._dirty_dot.create_oval(1, 1, 9, 9, fill=MARKER, outline='')
+
+    def _show_overflow_menu(self):
+        menu = tk.Menu(self.root, tearoff=0)
+        menu.add_command(label='页面信息…', command=self._show_page_info)
+        menu.add_separator()
+        menu.add_command(label='转换后端…', command=self._open_backend_dialog)
+        menu.add_command(label='重新载入文件',
+                         command=self._reload_document)
+        menu.add_separator()
+        menu.add_command(label='关于本应用', command=self._show_about)
+        try:
+            menu.tk_popup(self.root.winfo_pointerx(),
+                          self.root.winfo_pointery())
+        finally:
+            menu.grab_release()
+
+    def _open_backend_dialog(self):
+        dialog = BackendDialog(
+            self.root,
+            self.doc.converter.backend_status(),
+            self.doc.converter.requested_name,
+            on_select=self._apply_backend,
+            on_install=self._prompt_install_backend)
+        dialog.wait_window()
 
     def _label_for_backend(self, name):
-        for label, value in self._backend_labels.items():
-            if value == name:
+        for backend_name, label in self.doc.converter.backend_choices():
+            if backend_name == name:
                 return label
-        return next(iter(self._backend_labels))
-
-    def _on_backend_combo(self, event=None):
-        name = self._backend_labels.get(self._backend_display.get())
-        if name:
-            self._backend_var.set(name)
-            self._on_backend_changed()
+        return name
 
     def _build_main_area(self):
         paned = ttk.PanedWindow(self.root, orient='horizontal')
         paned.pack(fill='both', expand=True, padx=2, pady=2)
 
-        left_frame = ttk.Frame(paned, width=200)
+        left_frame = ttk.Frame(paned, width=268)
         self.thumb_panel = ThumbnailPanel(
             left_frame,
             on_select=self._on_page_select,
@@ -178,21 +186,55 @@ class MainWindow:
         )
         self.thumb_panel.pack(fill='both', expand=True)
         paned.add(left_frame, weight=0)
+        self._paned = paned
+        self.root.after(60, lambda: self._set_rail_width(paned))
+        self.root.after(600, lambda: self._set_rail_width(paned))
 
         right_frame = ttk.Frame(paned)
-        self.preview = PreviewPanel(right_frame)
+        self.preview = PreviewPanel(
+            right_frame,
+            on_rotate=lambda angle: self.rotate_page(angle),
+            on_delete=self.delete_current_page,
+            on_insert=self.insert_file_dialog)
         self.preview.pack(fill='both', expand=True)
         paned.add(right_frame, weight=1)
 
+    def _set_rail_width(self, paned, width=280):
+        try:
+            if abs(paned.sashpos(0) - width) > 8:
+                paned.sashpos(0, width)
+        except tk.TclError:
+            pass
+
     def _build_statusbar(self):
-        self.statusbar = ttk.Label(
-            self.root, text='就绪', style='Surface.TLabel', anchor='w',
-            padding=(8, 4))
-        self.statusbar.pack(fill='x', side='bottom')
+        bar = ttk.Frame(self.root, style='Surface.TFrame')
+        bar.pack(fill='x', side='bottom')
         ttk.Separator(self.root, orient='horizontal').pack(
             fill='x', side='bottom')
-        self._update_status(
-            '就绪  |  转换后端: {}'.format(self._backend_label()))
+
+        self.statusbar = ttk.Label(
+            bar, text='就绪', style='Surface.TLabel', anchor='w',
+            padding=(12, 4))
+        self.statusbar.pack(side='left', fill='x', expand=True)
+
+        self._facts_backend = ttk.Label(
+            bar, text='', style='Surface.TLabel', font=font('meta'),
+            anchor='e', padding=(4, 4))
+        self._facts_backend.pack(side='right')
+        self._facts_backend.bind('<Button-1>',
+                                 lambda e: self._open_backend_dialog())
+        self._facts_backend.bind(
+            '<Enter>', lambda e: self._facts_backend.configure(
+                foreground=ACCENT))
+        self._facts_backend.bind(
+            '<Leave>', lambda e: self._facts_backend.configure(
+                foreground=INK_2))
+
+        self._facts_pages = ttk.Label(
+            bar, text='', style='Surface.TLabel', font=font('meta'),
+            anchor='e', padding=(12, 4))
+        self._facts_pages.pack(side='right')
+        self._refresh_facts()
 
     def _backend_choices_for_ui(self):
         status = {item['name']: item
@@ -255,15 +297,12 @@ class MainWindow:
             save_backend(name)
         except OSError:
             pass
-        if hasattr(self, '_backend_display'):
-            self._backend_display.set(self._label_for_backend(name))
-        self._update_status('转换后端已切换: {}'.format(label))
+        self._refresh_facts()
+        self._update_status('转换后端已切换：{}'.format(label))
 
     def _revert_backend(self):
         name = self._last_backend
         self._backend_var.set(name)
-        if hasattr(self, '_backend_display'):
-            self._backend_display.set(self._label_for_backend(name))
         try:
             self.doc.converter.set_backend(name)
         except Exception:
@@ -464,13 +503,9 @@ class MainWindow:
             self._update_status('安装完成，重启应用后生效')
 
     def _set_backend_controls_enabled(self, enabled):
-        if hasattr(self, '_backend_combo'):
-            self._backend_combo.configure(
-                state='readonly' if enabled else 'disabled')
-        if hasattr(self, '_backend_menu'):
-            state = 'normal' if enabled else 'disabled'
-            for index in range(self._backend_menu.index('end') + 1):
-                self._backend_menu.entryconfigure(index, state=state)
+        if hasattr(self, '_backend_button'):
+            self._backend_button.configure(
+                state='normal' if enabled else 'disabled')
 
     def _restart_app(self, backend=None):
         if self.doc.is_modified:
@@ -514,10 +549,58 @@ class MainWindow:
     def _update_status(self, text):
         self.statusbar.configure(text=text)
 
+    def _refresh_facts(self):
+        pages = self.doc.page_count
+        self._facts_pages.configure(
+            text='共 {} 页'.format(pages) if pages else '')
+        label = self._backend_label().split(' (')[0]
+        available = False
+        try:
+            active = self.doc.converter.name
+        except RuntimeError:
+            active = None
+        for item in self.doc.converter.backend_status():
+            if item['name'] == active:
+                available = item['available']
+                break
+        self._facts_backend.configure(
+            text='{} {}'.format(label, '●' if available else '○'),
+            foreground=OK if available else INK_3)
+
+    def _show_page_info(self):
+        if not self.doc.doc:
+            messagebox.showinfo('页面信息', '还没有打开文档。')
+            return
+        try:
+            width, height = self.doc.get_page_size(0)
+        except Exception:
+            width = height = 0
+        size = 0
+        if self.doc.filepath and os.path.isfile(self.doc.filepath):
+            size = os.path.getsize(self.doc.filepath)
+        messagebox.showinfo(
+            '页面信息',
+            '{}\n共 {} 页\n页面尺寸：{:.0f} × {:.0f} pt\n文件大小：{}\n'
+            '转换后端：{}'.format(
+                os.path.basename(self.doc.filepath or '未命名'),
+                self.doc.page_count, width, height,
+                _human_size(size), self._backend_label()))
+
+    def _reload_document(self):
+        if not self.doc.filepath:
+            return
+        if self.doc.is_modified and not messagebox.askyesno(
+                '重新载入', '当前修改尚未保存，重新载入会丢失这些修改。继续？'):
+            return
+        path = self.doc.filepath
+        self.open_file(path)
+
     def _update_title(self):
-        name = os.path.basename(self.doc.filepath) if self.doc.filepath else '未命名'
-        mod = ' *' if self.doc.is_modified else ''
-        self.root.title(f'{name}{mod} - PDF 内嵌编辑助手')
+        name = (os.path.basename(self.doc.filepath)
+                if self.doc.filepath else '未命名')
+        self.root.title('{} — PDF 内嵌编辑助手'.format(name))
+        self._doc_name.configure(text=name)
+        self._paint_dirty()
 
     # ---------- 文件操作 ----------
 
@@ -530,7 +613,9 @@ class MainWindow:
             self.current_page = 0
             self.thumb_panel.load_document(self.doc)
             self._show_page(0)
-            self._update_status(f'已加载: {path}  |  共 {self.doc.page_count} 页')
+            self._update_status('已打开 {}'.format(
+                os.path.basename(path)))
+            self._refresh_facts()
             self._update_title()
         except Exception as e:
             messagebox.showerror('打开失败', str(e))
@@ -569,7 +654,7 @@ class MainWindow:
             return
         try:
             self.doc.save(path)
-            self._update_status(f'已保存: {path}')
+            self._update_status('已保存 {}'.format(os.path.basename(path)))
             self._update_title()
         except Exception as e:
             messagebox.showerror('保存失败', str(e))
@@ -615,9 +700,9 @@ class MainWindow:
         except Exception as e:
             messagebox.showerror('删除失败', str(e))
 
-    def _on_rotate_page(self, page_num):
+    def _on_rotate_page(self, page_num, angle=90):
         try:
-            self.doc.rotate_page(page_num, 90)
+            self.doc.rotate_page(page_num, angle)
             self.thumb_panel.refresh_page(page_num)
             self._show_page(page_num)
             self._update_title()
@@ -625,7 +710,7 @@ class MainWindow:
             messagebox.showerror('旋转失败', str(e))
 
     def rotate_page(self, angle):
-        self._on_rotate_page(self.current_page)
+        self._on_rotate_page(self.current_page, angle)
 
     def delete_current_page(self):
         self._on_delete_page(self.current_page)
@@ -699,7 +784,8 @@ class MainWindow:
         if self._converting:
             return
         self._converting = True
-        self._update_status('正在转换并插入文件，请稍候...')
+        self._update_status('正在转换 {}…'.format(
+            os.path.basename(filepath)))
         self.root.config(cursor='watch')
         self.root.update()
 
@@ -724,8 +810,8 @@ class MainWindow:
         new_page = min(position, self.doc.page_count - 1)
         self._show_page(new_page)
         self._update_title()
-        self._update_status(
-            f'已插入文件，当前共 {self.doc.page_count} 页')
+        self._refresh_facts()
+        self._update_status('已插入，共 {} 页'.format(self.doc.page_count))
 
     def _show_about(self):
         messagebox.showinfo(

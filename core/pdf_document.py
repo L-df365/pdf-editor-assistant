@@ -41,6 +41,14 @@ class PDFDocument:
         mat = pymupdf.Matrix(zoom, zoom)
         return page.get_pixmap(matrix=mat, alpha=False)
 
+    def thumbnail_for_width(self, page_num, target_width):
+        """按目标像素宽度渲染缩略图（避免固定缩放导致裁切）。"""
+        page = self.doc.load_page(page_num)
+        rect = page.rect
+        zoom = target_width / rect.width if rect.width else 0.2
+        mat = pymupdf.Matrix(zoom, zoom)
+        return page.get_pixmap(matrix=mat, alpha=False)
+
     def get_page_size(self, page_num):
         page = self.doc.load_page(page_num)
         return page.rect.width, page.rect.height
@@ -160,6 +168,12 @@ class PDFDocument:
 
         self.filepath = filepath
         self._modified = False
+
+    def get_page_at_zoom(self, page_num, zoom):
+        """按指定缩放比渲染页面（1.0 ≈ 72dpi）。"""
+        page = self.doc.load_page(page_num)
+        mat = pymupdf.Matrix(zoom, zoom)
+        return page.get_pixmap(matrix=mat, alpha=False)
 
     def get_page_image(self, page_num, max_width=800, max_height=600,
                         fit_width=False):
