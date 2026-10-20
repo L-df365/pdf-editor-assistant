@@ -4,7 +4,7 @@ from tkinter import ttk
 from gui.feedback import attach_tooltip
 from gui.widgets import FlatButton
 from gui.menu import MenuPopover, build
-from gui.theme import (ACCENT, INK_2, LINE, PAPER, STAGE, SURFACE, font)
+from gui.theme import (LINE, PAPER, SHADOW_TONES, STAGE, SURFACE, font)
 
 #: 缩放档位：(显示名, 取值)
 ZOOM_MODES = (
@@ -14,8 +14,6 @@ ZOOM_MODES = (
     ('200%', 2.0),
 )
 
-SHADOW_TONES = ('#C3CBC9', '#CCD3D1', '#D3D9D7')
-
 
 class PreviewPanel:
     """右侧预览面板：页面预览 + 缩放分段 + 页码计数。"""
@@ -24,8 +22,6 @@ class PreviewPanel:
                  on_insert=None, on_export=None, on_undo=None, on_redo=None):
         self.frame = ttk.Frame(parent, style='Surface.TFrame')
         self.current_photo = None
-        self.zoom = 1.0
-        self._fit_width = True
         self._last_doc = None
         self._last_page = 0
         self._mode = 'fit'
@@ -56,10 +52,9 @@ class PreviewPanel:
         bar = tk.Frame(self.action_card, bg=PAPER)
         bar.pack(padx=3, pady=3)
 
-        def action(text, command, style='Paper.Segment.TButton', width=None):
-            variant = 'danger' if style == 'Paper.Danger.TButton' else 'segment'
+        def action(text, command, variant='segment', width=None):
             button = FlatButton(bar, text, command=command, variant=variant,
-                               bg=PAPER, width=width)
+                                bg=PAPER, width=width)
             button.pack(side='left', padx=1, pady=1)
             return button
 
@@ -81,9 +76,7 @@ class PreviewPanel:
         if self.on_insert:
             action('＋ 在此后插入', self.on_insert)
         if self.on_delete:
-            action('⌫ 删除此页', self.on_delete,
-                   style='Paper.Danger.TButton')
-        self.action_bar = bar
+            action('⌫ 删除此页', self.on_delete, variant='danger')
 
 
     def _build_canvas(self):
@@ -121,10 +114,13 @@ class PreviewPanel:
         self._canvas_height = 600
 
     def _build_counter_bar(self):
+        # 分隔线要排在底栏上面：先 pack 分隔线再 pack 底栏，
+        # 否则分隔线会被挤到最底下（在底栏下面，看不见）。
+        ttk.Separator(self.frame, orient='horizontal').pack(fill='x',
+                                                            side='top')
         bar = ttk.Frame(self.frame, style='Surface.TFrame')
         bar.pack(fill='x')
-        ttk.Separator(self.frame, orient='horizontal').pack(fill='x', side='top')
-        self.counter = ttk.Label(bar, text='', style='Num.TLabel',
+        self.counter = ttk.Label(bar, text='', style='Surface.TLabel',
                                  font=font('num'), padding=(8, 3))
         self.counter.pack(side='right')
 
@@ -152,10 +148,12 @@ class PreviewPanel:
             ('实际大小 100%', lambda: self.set_zoom(1.0), 'Ctrl+1'),
             ('放大 200%', lambda: self.set_zoom(2.0), 'Ctrl+2'),
             None,
-            ('导出当前页为图片…', lambda: self._export(page)
-             if self.on_export else None),
+            # on_export / on_insert 传进来的是"无参数"回调，
+            # 这里只能调用它们、不能塞页码进去
+            ('导出当前页为图片…',
+             lambda: self.on_export() if self.on_export else None),
             ('在第 {} 页后插入文件…'.format(page + 1),
-             lambda: self.on_insert(page) if self.on_insert else None),
+             lambda: self.on_insert() if self.on_insert else None),
         ]))
         self._context_menu.show(event.x_root, event.y_root)
 
@@ -169,15 +167,12 @@ class PreviewPanel:
 
     def set_history(self, can_undo, can_redo):
         if getattr(self, 'undo_button', None) is not None:
-            self.undo_button.configure(
-                state='normal' if can_undo else 'disabled')
+            self.undo_button.configure_state(can_undo)
         if getattr(self, 'redo_button', None) is not None:
-            self.redo_button.configure(
-                state='normal' if can_redo else 'disabled')
+            self.redo_button.configure_state(can_redo)
 
     def set_zoom(self, mode):
         self._mode = mode
-        self._fit_width = mode == 'fit'
         self._paint_zoom()
         self._render_preview()
 
@@ -223,8 +218,6 @@ class PreviewPanel:
         else:
             zoom = float(self._mode)
             pix = doc.get_page_at_zoom(page_num, zoom)
-        self.zoom = zoom
-
         img = Image.frombytes('RGB', [pix.width, pix.height], pix.samples)
         self.current_photo = ImageTk.PhotoImage(img)
 

@@ -68,6 +68,21 @@ def drag(app, widget, x1, y1, x2, y2, steps=8):
     pump(app)
 
 
+def drag_to(app, widget, target, offset=0, steps=8):
+    """把 widget 上的指针拖到 target 的位置（屏幕上真实的坐标）。
+
+    事件是发给 widget 的，坐标相对它自己的左上角；
+    落点计算用的是屏幕坐标，所以要按两者屏幕位置的差换算。
+    """
+    tx = target.winfo_rootx() + target.winfo_width() // 2
+    ty = target.winfo_rooty() + offset
+    x1 = widget.winfo_width() // 2
+    y1 = widget.winfo_height() // 2
+    x2 = tx - widget.winfo_rootx()
+    y2 = ty - widget.winfo_rooty()
+    drag(app, widget, x1, y1, x2, y2, steps)
+
+
 def run(app):
     steps = []
 
@@ -102,10 +117,8 @@ def run(app):
         before = first_page_text()
         source = app.thumb_panel.cards[0]['image']
         target = app.thumb_panel.cards[3]['image']
-        drag(app, source,
-             source.winfo_width() // 2, source.winfo_height() // 2,
-             target.winfo_width() // 2,
-             target.winfo_height() // 2 + 30)
+        # 拖到第 4 页的上半部分（落点线画在第 4 页上沿之前）
+        drag_to(app, source, target, offset=6)
         after = first_page_text()
         check('拖拽改变了页面顺序', before != after,
               '第一页还是 {}'.format(after[:20]))
@@ -160,6 +173,49 @@ def run(app):
                 except tk.TclError:
                     closed = True
             check('点外面菜单消失', closed, '菜单还在')
+
+    @step
+    def s5b_info_panel():
+        """信息面板：正文用 grid、脚注再 pack 会直接崩（面板打不开）。"""
+        from gui.feedback import InfoPanel
+        panel = InfoPanel(app.root, '关于',
+                          [('作用', '把 Word、Excel 转成页面插进 PDF')],
+                          footnote='改动随时可以撤销。')
+        panel._place(app.root)
+        pump(app, 0.3)
+        check('关于面板能打开', panel.winfo_ismapped(), '面板没显示')
+        panel.destroy()
+        pump(app, 0.2)
+
+    @step
+    def s5c_undo_buttons():
+        """撤销/重做按钮的可用状态要跟着历史走（Canvas 不认 state）。"""
+        app._refresh_undo_buttons()
+        pump(app, 0.2)
+        check('撤销按钮状态跟历史一致',
+              app.preview.undo_button._state ==
+              ('normal' if app.doc.history.can_undo else 'disabled'),
+              app.preview.undo_button._state)
+        check('重做按钮状态跟历史一致',
+              app.preview.redo_button._state ==
+              ('normal' if app.doc.history.can_redo else 'disabled'),
+              app.preview.redo_button._state)
+
+    @step
+    def s5d_drop_target():
+        """拖拽落点：拖到第 4 页上沿，应该落在第 3 位（不是第 1 位）。"""
+        rail = app.thumb_panel
+        moved = []
+        original = rail.on_reorder
+        rail.on_reorder = lambda a, b: moved.append((a, b))
+        try:
+            source = rail.cards[1]['image']
+            target = rail.cards[3]['image']
+            drag_to(app, source, target, offset=4)
+        finally:
+            rail.on_reorder = original
+        check('拖拽落点算对了', moved and moved[0][1] == 2,
+              'moved={}'.format(moved))
 
     @step
     def s6_scrollbar():

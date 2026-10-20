@@ -3,10 +3,12 @@ import argparse
 import os
 import sys
 import urllib.parse
+import urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from gui.main_window import MainWindow
+from gui.feedback import toast
 
 
 def _parse_args(argv=None):
@@ -21,6 +23,17 @@ def _parse_args(argv=None):
     return parser.parse_args(argv)
 
 
+def _to_path(arg):
+    """命令行参数可以是路径，也可以是 file:// URI。"""
+    if not arg.startswith('file://'):
+        return arg
+    parsed = urllib.parse.urlparse(arg)
+    # file://host/path 里的 host 只能是空或 localhost
+    if parsed.netloc not in ('', 'localhost'):
+        return arg
+    return urllib.request.url2pathname(parsed.path)
+
+
 def main(argv=None):
     args = _parse_args(argv)
     if args.backend:
@@ -28,12 +41,12 @@ def main(argv=None):
 
     app = MainWindow()
     if args.file:
-        filepath = args.file
-        if filepath.startswith('file://'):
-            filepath = filepath[7:]
-        filepath = urllib.parse.unquote(filepath)
+        filepath = _to_path(args.file)
         if os.path.isfile(filepath):
             app.open_file(filepath)
+        else:
+            toast(app.root, '打不开这个文件：{}'.format(
+                os.path.basename(filepath)), 'warn')
     app.run()
 
 

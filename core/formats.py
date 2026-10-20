@@ -81,7 +81,21 @@ def patterns(exts):
 
 
 def filetypes():
-    """tkinter filedialog 用的过滤器列表（不含「所有文件」）。"""
+    """tkinter filedialog 用的过滤器列表（最后一项是「所有文件」）。"""
     result = [(name, patterns(exts)) for name, exts in FILE_GROUPS]
     result.append(('所有文件', '*.*'))
     return result
+
+
+def human_size(size):
+    """把字节数写成「1.2 MB」这样。"""
+    if not size:
+        return '0 B'
+    value = float(size)
+    for unit in ('B', 'KB', 'MB', 'GB'):
+        if value < 1024 or unit == 'GB':
+            if unit == 'B':
+                return '{:.0f} B'.format(value)
+            return '{:.1f} {}'.format(value, unit)
+        value /= 1024.0
+    return '{:.1f} GB'.format(value)

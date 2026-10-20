@@ -6,7 +6,7 @@
 两个要点：
 - 「当前文档所在文件夹」置顶，插入流程默认打开这个目录 —— 要合成的东西
   通常就在同一个文件夹里。
-- 插入模式支持多选，插入顺序按文件名字典序。
+- 插入模式支持多选，插入顺序按路径字典序（同一目录里就是文件名序）。
 """
 
 import os
@@ -18,23 +18,10 @@ from core import formats
 from core.settings import load_recent
 from gui.feedback import Sheet
 from gui.widgets import Chip, FlatButton
-from gui.theme import (ACCENT, ACCENT_TINT, INK, INK_2, INK_3, LINE, PAPER,
-                        SURFACE, font)
+from gui.theme import ACCENT, ACCENT_TINT, INK_2, INK_3, PAPER, font
 
 HOME = os.path.expanduser('~')
 RECENT = '__recent__'
-
-
-def _human_size(size):
-    if not size:
-        return '0 B'
-    value = float(size)
-    for unit in ('B', 'KB', 'MB', 'GB'):
-        if value < 1024 or unit == 'GB':
-            if unit == 'B':
-                return '{:.0f} B'.format(value)
-            return '{:.1f} {}'.format(value, unit)
-        value /= 1024.0
 
 
 def _human_time(timestamp):
@@ -48,6 +35,8 @@ class FileSheet(Sheet):
     mode='insert' 多选，可插入的文件类型
     """
 
+    _sort_key = 'name'      # 当前排序依据：name / type / mtime / size
+
     def __init__(self, parent, mode='open', current_path=None,
                  confirm_text='打开', on_browse=None, on_confirm=None):
         self.mode = mode
@@ -60,6 +49,7 @@ class FileSheet(Sheet):
         self.directory = self.cwd
         self.selected = set()
         self.rows = []
+        self._index = {}      # 路径 → 行数据（点选时查）
 
         title = '插入文件' if self.multi else '打开 PDF'
         super().__init__(parent, title)
@@ -137,7 +127,7 @@ class FileSheet(Sheet):
         right.grid(row=0, column=2, sticky='nse', padx=(14, 0))
         ttk.Label(right, text='详情', style='Paper.TLabel', font=font('meta'),
                   foreground=INK_3).pack(anchor='w', pady=(0, 6))
-        self.info_label = tk.Label(right, text='在左侧选一个文件\n这里会显示它的信息',
+        self.info_label = tk.Label(right, text='在中间的列表里选一个文件\n这里会显示它的信息',
                                    bg=PAPER, fg=INK_2, font=font('meta'),
                                    justify='left', width=18, anchor='w')
         self.info_label.pack(anchor='w')
@@ -168,8 +158,7 @@ class FileSheet(Sheet):
             FlatButton(bottom, '全选', command=self._select_all,
                        variant='secondary', bg=PAPER).pack(side='left')
         self.selection_label = Chip(bottom, text='', bg=ACCENT_TINT, fg=ACCENT)
-        self.selection_label.pack(side='left', padx=(10, 0))
-        self.selection_label.pack_forget()
+        # 先不显示，有选中项时再挂上去（_update_selection_label）
 
         self.confirm_button = FlatButton(
             bottom, confirm_text, command=self._confirm, variant='primary',
@@ -224,6 +213,9 @@ class FileSheet(Sheet):
         for full in load_recent():
             if not os.path.isfile(full):
                 continue
+            # 插入模式下要过滤：不能插的文件列出来也没用
+            if not self._allowed(full):
+                continue
             try:
                 stat = os.stat(full)
             except OSError:
@@ -232,7 +224,7 @@ class FileSheet(Sheet):
                 'path': full, 'name': os.path.basename(full),
                 'type': formats.badge_of(full),
                 'mtime': _human_time(stat.st_mtime),
-                'size': _human_size(stat.st_size),
+                'size': formats.human_size(stat.st_size),
                 'dir': False, 'mtime_raw': stat.st_mtime,
                 'size_raw': stat.st_size})
         self._sort_by('mtime')
@@ -261,9 +253,13 @@ class FileSheet(Sheet):
         for name in names:
             full = os.path.join(path, name)
             if os.path.isdir(full):
+                try:
+                    mtime = os.path.getmtime(full)
+                except OSError:
+                    continue   # 悬空链接之类的，直接跳过
                 self.rows.append({
                     'path': full, 'name': name + '/', 'type': '文件夹',
-                    'mtime': _human_time(os.path.getmtime(full)),
+                    'mtime': _human_time(mtime),
                     'size': '', 'dir': True, 'mtime_raw': 0,
                     'size_raw': 0})
                 continue
@@ -277,7 +273,7 @@ class FileSheet(Sheet):
                 'path': full, 'name': name,
                 'type': formats.badge_of(full),
                 'mtime': _human_time(stat.st_mtime),
-                'size': _human_size(stat.st_size),
+                'size': formats.human_size(stat.st_size),
                 'dir': False, 'mtime_raw': stat.st_mtime,
                 'size_raw': stat.st_size})
         self._sort_by('name')
@@ -294,6 +290,7 @@ class FileSheet(Sheet):
         elif key == 'type':
             self.rows.sort(key=lambda r: (not r['dir'], r['type'],
                                           r['name'].lower()))
+        self._index = {row['path']: row for row in self.rows}
         self.tree.delete(*self.tree.get_children())
         for row in self.rows:
             mark = '✓' if row['path'] in self.selected else ''
@@ -342,10 +339,7 @@ class FileSheet(Sheet):
         self._confirm()
 
     def _row(self, path):
-        for row in self.rows:
-            if row['path'] == path:
-                return row
-        return None
+        return self._index.get(path)
 
     def _select_all(self):
         self.selected = {row['path'] for row in self.rows if not row['dir']}
@@ -379,9 +373,13 @@ class FileSheet(Sheet):
     # ------------------------------------------------------------------
 
     def _sync_entry(self):
+        """路径框失去焦点：填的是目录就把列表也切过去。"""
         value = self.path_entry.get().strip()
-        if value and os.path.isdir(os.path.abspath(os.path.expanduser(value))):
-            self.directory = os.path.abspath(os.path.expanduser(value))
+        if not value:
+            return
+        path = os.path.abspath(os.path.expanduser(value))
+        if os.path.isdir(path) and path != self.directory:
+            self._load_directory(path)
 
     def _confirm_entry(self):
         value = self.path_entry.get().strip()
@@ -404,13 +402,17 @@ class FileSheet(Sheet):
         """
         if not self.on_browse:
             return
+        # 当前目录是"最近使用"这个占位符时，用当前文档所在目录
+        directory = self.directory
+        if not os.path.isdir(directory):
+            directory = self.cwd
         self.withdraw()
         try:
             self.grab_release()
         except tk.TclError:
             pass
         try:
-            path = self.on_browse(self.directory)
+            path = self.on_browse(directory)
         finally:
             self.deiconify()
             try:
@@ -433,5 +435,3 @@ class FileSheet(Sheet):
         if self.on_confirm:
             self.on_confirm(paths)
         self.destroy()
-
-    _sort_key = 'name'

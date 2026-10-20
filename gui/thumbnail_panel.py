@@ -30,7 +30,6 @@ class ThumbnailPanel:
         self.on_insert_after = on_insert_after
 
         self.doc = None
-        self.thumbnails = []
         self.cards = []          # [{'frame','marker','index','image','page'}]
         self.selected = None
         self._drag_data = {'index': None, 'start_y': None, 'moved': False,
@@ -203,7 +202,6 @@ class ThumbnailPanel:
     def _build_thumbnails(self):
         for w in self.inner.winfo_children():
             w.destroy()
-        self.thumbnails.clear()
         self.cards.clear()
         self._sizes.clear()
         self.selected = None
@@ -302,57 +300,94 @@ class ThumbnailPanel:
 
     # -- 拖拽落点指示 --------------------------------------------------
 
-    def _canvas_offset(self):
-        top = self.canvas.yview()[0]
-        return -top * self.inner.winfo_height()
+    def _column_at(self, x):
+        """指针落在哪一列（按卡片实际位置判断，不按画布坐标猜）。"""
+        best = 0
+        best_distance = None
+        for card in self.cards:
+            col = card['frame'].grid_info().get('column', 0)
+            left = card['frame'].winfo_x()
+            right = left + card['frame'].winfo_width()
+            if left <= x <= right:
+                return col
+            distance = min(abs(x - left), abs(x - right))
+            if best_distance is None or distance < best_distance:
+                best_distance = distance
+                best = col
+        return best
 
     def _update_drop_indicator(self, event):
-        cy = event.y + self._canvas_offset()
-        cx = event.x
-        inner_w = max(self.inner.winfo_width(), 1)
-        col = 0 if cx < inner_w / 2 else 1
+        """算出落点：线画在哪、页面插到第几位。
 
-        candidates = []
-        for card in self.cards:
-            if card['frame'].grid_info().get('column', 0) != col:
-                continue
-            top = card['frame'].winfo_y()
-            height = card['frame'].winfo_height()
-            candidates.append((top, height, card['page']))
-        candidates.sort()
+        坐标要换算到"内容坐标系"：事件可能落在卡片、画布、内层框架中的
+        任何一个上，event.x/y 是相对那个控件的；画布还会滚动、内容还会
+        整列居中。统一用根坐标换算才不会算错列
+        （单列时直接用 event.x 会每次都落在第一页）。
+        """
+        ox, oy = self.canvas.coords('inner')
+        view_x = event.x_root - self.canvas.winfo_rootx()
+        view_y = event.y_root - self.canvas.winfo_rooty()
+        px = self.canvas.canvasx(view_x) - ox
+        py = self.canvas.canvasy(view_y) - oy
 
-        target = None
-        line_y = None
-        for top, height, page in candidates:
-            if cy < top + height / 2:
-                target = page
+        col = self._column_at(px)
+        column = [card for card in self.cards
+                  if card['frame'].grid_info().get('column', 0) == col]
+        column.sort(key=lambda card: card['frame'].winfo_y())
+
+        insert_at = 0
+        line_y = 0
+        line_card = None
+        for card in column:
+            frame = card['frame']
+            top = frame.winfo_y()
+            height = frame.winfo_height()
+            if py < top + height / 2:
+                insert_at = card['page']
                 line_y = top
+                line_card = frame
                 break
-        if target is None:
-            if candidates:
-                top, height, page = candidates[-1]
-                target = page + 1
-                line_y = top + height
+        else:
+            if column:
+                frame = column[-1]['frame']
+                insert_at = column[-1]['page'] + 1
+                line_y = frame.winfo_y() + frame.winfo_height()
+                line_card = frame
             else:
-                target = 0
-                line_y = 0
+                insert_at, line_y = 0, 0
+
+        # 拖走的那页本身要占位：线在它前面时，实际落点要往前挪一格
+        source = self._drag_data.get('index')
+        target = insert_at
+        if source is not None and source < insert_at:
+            target = insert_at - 1
 
         self._drag_data['target'] = target
-        self._draw_drop_line(line_y, col)
+        self._draw_drop_line(line_y, line_card, ox, oy)
 
-    def _draw_drop_line(self, y, col):
+    def _draw_drop_line(self, y, card, ox, oy):
+        """落点线。
+
+        要画在"内容层"里：缩略图是画布上的窗口项（独立的子窗口），
+        画在画布上的线会被整块内容盖住，看不见。
+        """
         self._clear_drop_line()
-        inner_w = max(self.inner.winfo_width(), 1)
-        x0 = 4
-        x1 = inner_w // 2 - 4 if col == 0 else inner_w - 4
-        if col == 1:
-            x0 = inner_w // 2 + 4
-        self._drop_line = self.canvas.create_line(
-            x0, y, x1, y, fill=ACCENT, width=2, tags='drop')
+        if card is None:
+            x = 4
+            width = max(self.inner.winfo_width(), 1) - 8
+        else:
+            x = card.winfo_x()
+            width = card.winfo_width()
+        line = tk.Frame(self.inner, bg=ACCENT, height=2)
+        line.place(x=x, y=max(int(y), 0), width=max(int(width), 1), height=2)
+        self._drop_line = line
 
     def _clear_drop_line(self):
         if self._drop_line is not None:
-            self.canvas.delete(self._drop_line)
+            try:
+                self._drop_line.destroy()
+            except tk.TclError:
+                pass
             self._drop_line = None
 
     # ------------------------------------------------------------------
@@ -383,9 +418,16 @@ class ThumbnailPanel:
             card['image'].configure(bg=PAPER)
 
     def refresh(self):
+        """重建缩略图（文档变了之后调用）。
+
+        重建会清掉选中状态，要先把当前页记下来再恢复，
+        否则刷新后当前页的高亮就没了。
+        """
+        selected = self.selected
         self._build_thumbnails()
-        if self.selected is not None and self.selected < len(self.cards):
-            self._paint_card(self.cards[self.selected], True)
+        if selected is not None and selected < len(self.cards):
+            self.selected = selected
+            self._paint_card(self.cards[selected], True)
 
     def refresh_page(self, page_num):
         for card in self.cards:

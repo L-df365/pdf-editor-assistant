@@ -6,7 +6,7 @@ from tkinter import ttk
 
 from gui.feedback import Sheet
 from gui.widgets import FlatButton
-from gui.theme import INK, INK_2, INK_3, LINE, PAPER, font
+from gui.theme import INK, INK_2, INK_3, PAPER, font
 
 
 class InsertSheet(Sheet):
@@ -80,7 +80,12 @@ class InsertSheet(Sheet):
         elif choice == 'end':
             position = self.page_count
         else:
-            position = max(0, min(self.page_count, self._index.get() - 1))
+            # 页码框被清空时 IntVar.get() 会抛 TclError，这里退回当前页
+            try:
+                page = int(self._index.get())
+            except (tk.TclError, ValueError):
+                page = self.current_page + 1
+            position = max(0, min(self.page_count, page - 1))
         self.result = position
         if self.on_confirm:
             self.on_confirm(position)

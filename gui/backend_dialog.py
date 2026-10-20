@@ -1,7 +1,7 @@
 import tkinter as tk
 from tkinter import ttk
 
-from gui.theme import (ACCENT, INK, INK_2, INK_3, OK, SURFACE, font)
+from gui.theme import INK_2, INK_3, OK, PAPER, font
 
 
 class BackendDialog(tk.Toplevel):
@@ -15,6 +15,7 @@ class BackendDialog(tk.Toplevel):
         self.on_select = on_select
         self.on_install = on_install
         self._status = {item['name']: item for item in status_list}
+        self._current = current
         self._var = tk.StringVar(value=current)
 
         frame = ttk.Frame(self, style='Paper.TFrame', padding=(16, 14))
@@ -37,7 +38,7 @@ class BackendDialog(tk.Toplevel):
             radio.grid(row=row_index, column=0, sticky='w', pady=4)
 
             dot = tk.Label(frame, text='●', font=font('body'),
-                           bg='#FFFFFF',
+                           bg=PAPER,
                            foreground=OK if available else INK_3)
             dot.grid(row=row_index, column=1, sticky='w', padx=(12, 6))
 
@@ -69,8 +70,9 @@ class BackendDialog(tk.Toplevel):
     def _pick(self, name):
         item = self._status.get(name, {})
         if not item.get('available'):
-            # 不可用：撤销选择并交给安装流程
-            self._var.set('')
+            # 不可用：把选择退回去（所有单选按钮共用一个变量，
+            # 直接清空会把当前后端也一起取消掉），交给安装流程
+            self._var.set(self._current)
             self.on_install(name, item)
             return
         self.on_select(name)

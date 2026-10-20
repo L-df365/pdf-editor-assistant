@@ -24,6 +24,8 @@ STAGE = '#D8DEDD'       # 预览台面（比 surface 深一档，让白纸浮起
 LINE = '#D3D9D7'        # 1px 分隔线、卡片描边
 LINE_SOFT = '#E3E8E6'   # 更弱的分隔、滚动条轨道
 SCROLL_THUMB = '#C2CAC8'  # 滚动条滑块：比 LINE 深一档，浅色底上也要看得见
+#: 页面在台面上的投影（由深到浅三层）
+SHADOW_TONES = ('#C3CBC9', '#CCD3D1', '#D3D9D7')
 INK = '#1B2321'         # 主文字
 INK_2 = '#586460'       # 次要文字
 INK_3 = '#8B9693'       # 三级 / 禁用（不用于正文）
@@ -33,6 +35,7 @@ ACCENT_TINT = '#E2EFEC'  # 选中底、标签底
 MARKER = '#E9A62A'      # 荧光琥珀：仅「当前页 / 进行中」标记
 MARKER_INK = '#8A5A00'  # 琥珀底上的文字
 DANGER = '#B4462F'      # 删除、破坏性动作
+DANGER_DEEP = '#8F3524'  # 危险按钮按下
 DANGER_TINT = '#F8E7E3'  # 危险项悬停底
 OK = '#2F7D5B'         # 已保存、状态点「可用」
 
@@ -60,7 +63,6 @@ NUM_FONT = 'TkFixedFont'
 
 SIZE = {
     'display': 18,   # 空状态主标题（全应用仅此一处）
-    'wordmark': 12,  # 顶栏字标
     'h1': 13,        # 面板 / 弹层标题、文档名
     'h2': 11,        # 区块标题、按钮
     'body': 10,      # 正文、菜单项、输入
@@ -80,8 +82,6 @@ def font(kind='body', weight=''):
     """返回 tk 字体元组。kind: display/h1/h2/body/meta/num。"""
     if kind == 'display':
         family, size = DISPLAY_FONT, SIZE['display']
-    elif kind == 'wordmark':
-        family, size = DISPLAY_FONT, SIZE['wordmark']
     elif kind == 'num':
         family, size = NUM_FONT, SIZE['num']
     else:
@@ -96,16 +96,6 @@ def font(kind='body', weight=''):
 # --------------------------------------------------------------------------
 
 SPACE = {'xs': 4, 'sm': 8, 'md': 12, 'lg': 16, 'xl': 24, 'xxl': 32}
-RADIUS = {'sm': 2, 'md': 3, 'lg': 6}
-CURSOR = {
-    'link': 'hand2',
-    'move': 'fleur',
-    'busy': 'watch',
-    'text': 'xterm',
-    'default': 'arrow',
-}
-
-
 # --------------------------------------------------------------------------
 # 主题
 # --------------------------------------------------------------------------
@@ -352,9 +342,7 @@ def _configure_styles(style):
     _set(style, 'Paper.TRadiobutton', background=PAPER, foreground=INK,
          focuscolor=ACCENT, font=font('body'))
     # 指示器：纸白底 + 墨青勾
-    for name in ('TCheckbutton', 'TRadiobutton', 'Surface.TCheckbutton',
-                 'Surface.TRadiobutton', 'Paper.TCheckbutton',
-                 'Paper.TRadiobutton'):
+    for name in ('TCheckbutton', 'TRadiobutton', 'Paper.TRadiobutton'):
         _set(style, name, indicatorbackground=PAPER,
              indicatorforeground=ACCENT, upperbordercolor=LINE,
              lowerbordercolor=LINE, indicatorsize=11, indicatormargin=1)
@@ -454,20 +442,3 @@ def style_scrollbars(style):
         except tk.TclError:
             continue
     return style
-
-
-def apply_menu_style(menu):
-    """给单独的 tk.Menu 应用菜单语法（供自绘/动态菜单使用）。"""
-    menu.configure(
-        tearoff=0,
-        font=(UI_FONT, SIZE['body']),
-        background=PAPER,
-        foreground=INK,
-        activebackground=ACCENT_TINT,
-        activeforeground=INK,
-        activeborderwidth=0,
-        disabledforeground=INK_3,
-        borderwidth=1,
-        relief='solid',
-    )
-    return menu

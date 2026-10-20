@@ -8,16 +8,14 @@ Tk 的 `tk.Menu` 只能改颜色：没有圆角、阴影、图标、分区，做
 import tkinter as tk
 
 from gui.draw import rounded_photo
-from gui.theme import (ACCENT, ACCENT_TINT, DANGER, INK, INK_2, INK_3, LINE,
-                        PAPER, font)
+from gui.theme import (ACCENT, ACCENT_TINT, DANGER, DANGER_TINT, INK, INK_2,
+                        INK_3, LINE, PAPER, font)
 
 ROW_HEIGHT = 30
 PADDING_X = 12
 ICON_X = 14
 LABEL_X = 40
 CORNER = 6
-SHADOW_TONES = ('#C6CECC', '#D0D7D5', '#D8DEDC')
-DANGER_TINT = '#F8E7E3'
 
 
 #: 当前打开的浮层 + 全局点选调度（只装一次，避免反复 bind/unbind）
@@ -38,6 +36,8 @@ def _ensure_dispatch():
 
 
 def _dispatch(event):
+    if not _LIVE:
+        return
     for popover in list(_LIVE):
         popover._handle_dismiss(event)
 
@@ -68,8 +68,6 @@ class MenuPopover:
         self._win = None
         self._canvas = None
         self._rows = []
-        self._dismiss_func = None
-        self._dismiss_binding = ()
 
     # -- 显示 ----------------------------------------------------------
 
@@ -111,17 +109,23 @@ class MenuPopover:
             _LIVE.remove(self)
 
     def _handle_dismiss(self, event):
-        if self._win is None or not self._win.winfo_ismapped():
+        if self._win is None:
             return
         if event.type == '<Escape>':
             self.hide()
             return
-        x = getattr(event, 'x_root', 0)
-        y = getattr(event, 'y_root', 0)
-        left = self._win.winfo_rootx()
-        top = self._win.winfo_rooty()
-        inside = (left <= x <= left + self._win.winfo_width()
-                  and top <= y <= top + self._win.winfo_height())
+        try:
+            if not self._win.winfo_exists() or not self._win.winfo_ismapped():
+                return
+            x = getattr(event, 'x_root', 0)
+            y = getattr(event, 'y_root', 0)
+            left = self._win.winfo_rootx()
+            top = self._win.winfo_rooty()
+            inside = (left <= x <= left + self._win.winfo_width()
+                      and top <= y <= top + self._win.winfo_height())
+        except tk.TclError:
+            # 窗口已经被销毁（父容器重建、程序退出）
+            return
         if not inside:
             self.hide()
 
@@ -129,10 +133,6 @@ class MenuPopover:
         """收起浮层，但保留窗口实例（下次打开更快）。"""
         self._remove_dismiss_handler()
         if self._win is not None:
-            try:
-                self._win.grab_release()
-            except tk.TclError:
-                pass
             try:
                 self._win.withdraw()
             except tk.TclError:
@@ -251,14 +251,19 @@ class MenuPopover:
         if not item.enabled:
             self.active = -1
             return
+        self._paint_hover(item, top, size)
+
+    def _paint_hover(self, item, top, size):
+        """画悬停底色。
+
+        底色必须压在文字下面（tag_lower），否则文字会被盖掉。
+        """
         tint = DANGER_TINT if item.danger else ACCENT_TINT
         pad = getattr(self, '_pad', 6)
         self._hover_photo = rounded_photo(
             max(self._width - 6, 8), size - 2, 5, tint, root=self.parent)
         self._canvas.create_image(pad + 3, top + 1, image=self._hover_photo,
                                   anchor='nw', tags='hover')
-        self._canvas.tag_lower('hover', 'text')
-        # 悬停底色必须压在文字下面，否则文字会被盖掉
         self._canvas.tag_lower('hover', 'text')
 
     def _on_click(self, event):
@@ -302,15 +307,7 @@ class MenuPopover:
         item, top, size = self._rows[self.active]
         if not item.enabled:
             return
-        tint = DANGER_TINT if item.danger else ACCENT_TINT
-        pad = getattr(self, '_pad', 6)
-        self._hover_photo = rounded_photo(
-            max(self._width - 6, 8), size - 2, 5, tint, root=self.parent)
-        self._canvas.create_image(pad + 3, top + 1, image=self._hover_photo,
-                                  anchor='nw', tags='hover')
-        self._canvas.tag_lower('hover', 'text')
-        # 悬停底色必须压在文字下面，否则文字会被盖掉
-        self._canvas.tag_lower('hover', 'text')
+        self._paint_hover(item, top, size)
 
 
 def accel_label(spec):
@@ -325,7 +322,12 @@ def accel_label(spec):
 
 
 def build(items):
-    """items: [(label, command, accelerator, icon, danger, enabled), ...]"""
+    """items: [(label, command, accelerator, icon, danger, enabled), ...]
+
+    注意第 5、6 个位置：第 5 个是 danger（危险项标红），
+    第 6 个才是 enabled（不可用时置灰）。位置传错的话
+    "没有最近文件"会变成一条红色的菜单项。
+    """
     result = []
     for entry in items:
         if entry is None:

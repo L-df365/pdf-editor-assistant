@@ -8,8 +8,8 @@ import tkinter as tk
 from tkinter import font as tkfont
 
 from gui.draw import rounded_photo
-from gui.theme import (ACCENT, ACCENT_DEEP, ACCENT_TINT, DANGER, DANGER_TINT,
-                        INK, INK_2, INK_3, LINE, PAPER, font)
+from gui.theme import (ACCENT, ACCENT_DEEP, ACCENT_TINT, DANGER, DANGER_DEEP,
+                        DANGER_TINT, INK, INK_2, INK_3, LINE, PAPER, font)
 
 RADIUS = 6
 PAD_X = 12
@@ -21,6 +21,7 @@ VARIANTS = {
     'secondary': (PAPER, LINE, INK, ACCENT_TINT, INK),
     'ghost': ('', '', INK_2, ACCENT_TINT, INK),
     'danger': ('', '', DANGER, DANGER_TINT, DANGER),
+    'danger-solid': (DANGER, DANGER, PAPER, DANGER_DEEP, PAPER),
     'menu': ('', '', INK, ACCENT_TINT, INK),
     'segment': ('', '', INK_2, ACCENT_TINT, INK),
     'segment-on': (ACCENT_TINT, '', ACCENT, ACCENT_TINT, ACCENT),
@@ -28,7 +29,10 @@ VARIANTS = {
 
 
 def bg_of(parent, fallback=PAPER):
-    """取父容器的背景色（ttk 控件没有 -bg 选项）。"""
+    """取父容器的背景色（ttk 控件没有 -bg 选项）。
+
+    ttk 容器取不到 -bg，就退回 fallback（调用方一般会显式给 bg）。
+    """
     try:
         return parent.cget('bg')
     except tk.TclError:
@@ -111,6 +115,20 @@ class FlatButton(tk.Canvas):
         self._state = 'normal' if enabled else 'disabled'
         self.configure(cursor='hand2' if enabled else 'arrow')
         self._redraw()
+        return self
+
+    def configure(self, **kwargs):
+        """Canvas 没有"禁用"这个状态，得自己接住。
+
+        不接的话 configure(state='disabled') 只会去改 Canvas 的 state，
+        按钮既不变灰、也照样能点（撤销/重做就是这样失效的）。
+        """
+        if 'state' in kwargs:
+            state = kwargs.pop('state')
+            enabled = state not in ('disabled', 'active')
+            self.configure_state(enabled)
+        if kwargs:
+            return super().configure(**kwargs)
         return self
 
     def set_text(self, text):
@@ -217,7 +235,7 @@ class FlatButton(tk.Canvas):
         if self._icon:
             self.create_text(x, mid, text=self._icon, anchor='w',
                              fill=fg, font=self._icon_font)
-            x += self._icon_font.measure(self._icon)
+            x += text_width(self._icon_font_spec, self._icon)
             if self._text:
                 x += 5
         if self._text:
@@ -237,7 +255,8 @@ class Chip(tk.Canvas):
         self._fg = fg
         self._pad_x = pad_x
         self._pad_y = pad_y
-        self._font = tkfont.Font(font=font('body', 'bold'))
+        self._font_spec = font('body', 'bold')
+        self._font = tkfont.Font(font=self._font_spec)
         self.bind('<Configure>', lambda e: self._redraw())
         self._redraw()
 
@@ -251,9 +270,14 @@ class Chip(tk.Canvas):
 
     def _redraw(self):
         self.delete('all')
-        text_w = self._font.measure(self._text) if self._text else 0
+        text_w = (text_width(self._font_spec, self._text)
+                  if self._text else 0)
         width = text_w + self._pad_x * 2
-        height = max(self._font.metrics('linespace'), 16) + self._pad_y * 2
+        # 和按钮一样用 ascent+descent：中日韩字体的 linespace 很高，
+        # 用 linespace 会让色块比旁边的按钮高出一截
+        text_h = (font_metric(self._font_spec, 'ascent')
+                  + font_metric(self._font_spec, 'descent'))
+        height = max(min(int(text_h), 18), 16) + self._pad_y * 2
         self.configure(width=width, height=height)
         if self._text:
             self._photo = rounded_photo(width, height, RADIUS,
@@ -276,6 +300,7 @@ class RoundedCard(tk.Frame):
         self._outline = outline
         self._shadow = shadow
         self._photo = None
+        self._last_size = None
         self._canvas = tk.Canvas(self, highlightthickness=0, bd=0,
                                  bg=self.cget('bg'))
         self._canvas.pack(fill='both', expand=True)
@@ -291,7 +316,7 @@ class RoundedCard(tk.Frame):
         if width <= 1 or height <= 1:
             return
         # 尺寸没变就别重画：否则 configure → <Configure> → configure 会打转
-        if (width, height) == getattr(self, '_last_size', None):
+        if (width, height) == self._last_size:
             return
         self._last_size = (width, height)
         # 内容要按圆角半径内缩：内容的矩形背景会盖住卡片圆角，
@@ -303,6 +328,8 @@ class RoundedCard(tk.Frame):
         card_h = height + inset * 2
         self._canvas.configure(width=card_w + shadow_pad * 2,
                               height=card_h + shadow_pad * 2)
+        # 图片贴在 (0,0)：卡片本体在图里的 (pad, pad)，
+        # 内容跟着落在 (pad + inset) —— 两者对得上，圆角才不会被内容盖住。
         self._canvas.coords(self._window,
                              shadow_pad + inset,
                              shadow_pad + inset)
@@ -310,7 +337,9 @@ class RoundedCard(tk.Frame):
                                     self._outline, 1, self._shadow,
                                     root=self.winfo_toplevel(),
                                     pad=shadow_pad)
+        # 必须打 tag：没有 tag 的话 delete('card') 删不掉旧图，
+        # 每 resize 一次画布上就多一张图。
         self._canvas.delete('card')
-        self._canvas.create_image(shadow_pad, shadow_pad,
-                                  image=self._photo, anchor='nw')
+        self._canvas.create_image(0, 0, image=self._photo, anchor='nw',
+                                  tags='card')
         self._canvas.tag_lower('card')

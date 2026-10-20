@@ -18,25 +18,14 @@ from gui.file_sheet import FileSheet
 from gui.insert_sheet import InsertSheet
 from gui.widgets import FlatButton
 from gui.menu import MenuPopover, accel_label, build
-from gui.theme import (ACCENT, INK, INK_2, INK_3, MARKER, OK, SURFACE,
-                        font, init_theme)
+from gui.theme import (ACCENT, INK_2, INK_3, MARKER, OK, SURFACE, font,
+                        init_theme)
 from gui.thumbnail_panel import ThumbnailPanel
 from gui.preview_panel import PreviewPanel
 
 
 HOME_DIR = '/home/user' if os.path.isdir('/home/user') else os.path.expanduser('~')
 
-
-def _human_size(size):
-    if not size:
-        return '0 B'
-    value = float(size)
-    for unit in ('B', 'KB', 'MB', 'GB'):
-        if value < 1024 or unit == 'GB':
-            if unit == 'B':
-                return '{:.0f} B'.format(value)
-            return '{:.1f} {}'.format(value, unit)
-        value /= 1024.0
 
 class MainWindow:
     """主窗口。"""
@@ -132,8 +121,10 @@ class MainWindow:
     def _menu_file(self):
         return build([
             ('打开 PDF…', self.open_pdf, accel_label('Ctrl+O')),
+            # 第 5 个位置是 danger、第 6 个才是 enabled：
+            # 没有最近文件时这一条要置灰，而不是变红
             ('打开最近文件…', self._open_recent, accel_label('Ctrl+Shift+O'),
-             '', bool(load_recent())),
+             '', False, bool(load_recent())),
             None,
             ('保存', self.save_pdf, accel_label('Ctrl+S')),
             ('另存为…', self.save_as, accel_label('Ctrl+Shift+S')),
@@ -208,7 +199,9 @@ class MainWindow:
                               self.root.winfo_pointery() + 18)
 
     def _recent_files(self):
-        return []
+        """最近打开过的文件（还在的、还是 PDF 的）。"""
+        return [path for path in load_recent()
+                if os.path.isfile(path) and path.lower().endswith('.pdf')]
 
     def _show_shortcuts(self):
         InfoPanel.show(
@@ -274,7 +267,7 @@ class MainWindow:
             on_rotate=lambda angle: self.rotate_page(angle),
             on_delete=self.delete_current_page,
             on_insert=self.insert_file_dialog,
-            on_export=self._export_current_page,
+            on_export=lambda: self._export_current_page(self.current_page),
             on_undo=self.undo,
             on_redo=self.redo)
         self.preview.pack(fill='both', expand=True)
@@ -661,6 +654,10 @@ class MainWindow:
         if self._converting:
             toast(self.root, '文件还在转换中，稍等一下', 'warn')
             return
+        try:
+            self.doc.dispose()      # 清掉历史快照、转换出来的临时 PDF
+        except Exception:
+            pass
         self.root.destroy()
 
     def _bind_shortcuts(self):
@@ -794,7 +791,7 @@ class MainWindow:
             [('文件', os.path.basename(self.doc.filepath or '未命名')),
              ('页数', '共 {} 页'.format(self.doc.page_count)),
              ('页面尺寸', '{:.0f} × {:.0f} pt'.format(width, height)),
-             ('文件大小', _human_size(size)),
+             ('文件大小', formats.human_size(size)),
              ('转换后端', self._backend_label())])
 
     def _reload_document(self):

@@ -1,10 +1,9 @@
 """空状态：没有打开文档时的主界面。"""
 
 import tkinter as tk
-from tkinter import ttk
 
-from gui.theme import (ACCENT, INK, INK_2, INK_3, MARKER, PAPER, STAGE,
-                        font)
+from gui.theme import INK, INK_2, INK_3, MARKER, STAGE, font
+from gui.widgets import FlatButton
 
 
 class EmptyState:
@@ -35,10 +34,11 @@ class EmptyState:
 
         buttons = tk.Frame(center, bg=STAGE)
         buttons.pack(anchor='w', pady=(22, 0))
-        ttk.Button(buttons, text='打开 PDF', style='Primary.TButton',
-                   command=self._open, width=14).pack(side='left', padx=(0, 10))
-        ttk.Button(buttons, text='插入文件', style='TButton',
-                   command=self._insert, width=14).pack(side='left')
+        FlatButton(buttons, '打开 PDF', command=self._open,
+                   variant='primary', bg=STAGE, width=110).pack(
+                       side='left', padx=(0, 10))
+        FlatButton(buttons, '插入文件', command=self._insert,
+                   variant='secondary', bg=STAGE, width=110).pack(side='left')
 
         tk.Label(center, text='Ctrl+O 打开　·　在文件管理器里双击文件，'
                               '也能用本应用打开',

@@ -64,8 +64,11 @@ def attach_tooltip(widget, text, delay=500):
     def show():
         if state['win'] is not None:
             return
-        x = widget.winfo_rootx() + widget.winfo_width() // 2
-        y = widget.winfo_rooty() + widget.winfo_height() + 6
+        try:
+            x = widget.winfo_rootx() + widget.winfo_width() // 2
+            y = widget.winfo_rooty() + widget.winfo_height() + 6
+        except tk.TclError:
+            return   # 控件已经被销毁
         win = tk.Toplevel(widget)
         win.overrideredirect(True)
         try:
@@ -87,13 +90,17 @@ def attach_tooltip(widget, text, delay=500):
                 pass
             state['job'] = None
         if state['win'] is not None:
-            state['win'].destroy()
+            try:
+                state['win'].destroy()
+            except tk.TclError:
+                pass
             state['win'] = None
 
     widget.bind('<Enter>', lambda e: state.update(
         job=widget.after(delay, show)), add='+')
     widget.bind('<Leave>', lambda e: hide(), add='+')
     widget.bind('<ButtonPress>', lambda e: hide(), add='+')
+    widget.bind('<Destroy>', lambda e: hide(), add='+')
     return hide
 
 
@@ -143,12 +150,15 @@ class Sheet(tk.Toplevel):
         h = max(self._bg.winfo_height(), 40)
         self._bg.delete('card')
         m = self.MARGIN
-        # 抗锯齿圆角 + 柔和投影
+        # 抗锯齿圆角 + 柔和投影。
+        # pad 是投影留白：图比卡片大 pad*2，卡片本体在图里的 (pad, pad)，
+        # 所以图要往左上挪 pad，卡片才落在原来的 (m, m) 上。
+        pad = 6
         self._card_photo = rounded_photo(
             w - m * 2, h - m * 2, self.RADIUS, PAPER, LINE, 1, shadow=True,
-            root=self.winfo_toplevel())
-        self._bg.create_image(m, m, image=self._card_photo, anchor='nw',
-                              tags='card')
+            root=self.winfo_toplevel(), pad=pad)
+        self._bg.create_image(m - pad, m - pad, image=self._card_photo,
+                              anchor='nw', tags='card')
 
     def _cancel(self):
         self.result = False
@@ -193,11 +203,13 @@ class ConfirmPanel(Sheet):
     def __init__(self, parent, title, body, confirm_text='确认',
                  danger=True):
         super().__init__(parent, title, body)
+        # 先放确定、再放取消：side='right' 时后放的排左边，
+        # 这样确定在右、取消在左（和系统对话框一致）。
+        FlatButton(self.button_frame, confirm_text, command=self._confirm,
+                   variant='danger-solid' if danger else 'primary',
+                   bg=PAPER).pack(side='right', padx=(0, 8), pady=2)
         FlatButton(self.button_frame, '取消', command=self._cancel,
                    variant='ghost', bg=PAPER).pack(side='right', pady=2)
-        FlatButton(self.button_frame, confirm_text, command=self._confirm,
-                   variant='danger' if danger else 'primary',
-                   bg=PAPER).pack(side='right', padx=(0, 8), pady=2)
 
     def _confirm(self):
         self.result = True
@@ -275,9 +287,13 @@ class InfoPanel(Sheet):
                             padx=(16, 0))
         self.body_frame.columnconfigure(1, weight=1)
         if footnote:
+            # 同一个容器里只能有一种几何管理器：这里要用 grid，
+            # 混用 pack 会直接抛 TclError（面板根本打不开）。
             ttk.Label(self.body_frame, text=footnote, style='Paper.TLabel',
                       font=font('meta'), foreground=INK_2, wraplength=420,
-                      justify='left').pack(anchor='w', pady=(12, 0))
+                      justify='left').grid(row=len(rows), column=0,
+                                           columnspan=2, sticky='w',
+                                           pady=(12, 0))
         FlatButton(self.button_frame, '关闭', command=self._cancel,
                    variant='primary', bg=PAPER).pack(side='right', pady=2)
 

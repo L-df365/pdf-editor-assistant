@@ -4,8 +4,8 @@ from .backends import (
     BACKEND_ENV,
     BACKEND_CLASSES,
     DEFAULT_BACKEND,
-    backend_choices,
-    backend_status,
+    backend_choices as _backend_choices,
+    backend_status as _backend_status,
     get_backend,
 )
 
@@ -55,19 +55,22 @@ class DocumentConverter:
         self._backend = None
 
     def backend_choices(self):
-        return backend_choices()
+        return _backend_choices()
 
     def backend_status(self):
-        return backend_status()
+        return _backend_status()
 
     def can_convert(self, filepath):
         ext = os.path.splitext(filepath)[1].lower()
         if ext == '.pdf':
             return True
+        if ext not in self.SUPPORTED:
+            return False
         try:
             return self.backend.can_convert(filepath)
         except RuntimeError:
-            return any(ext in cls.SUPPORTED for cls in BACKEND_CLASSES)
+            # 还没选定后端：只要有后端支持这种格式就算能转
+            return True
 
     def convert_to_pdf(self, input_path, output_dir=None):
         return self.backend.convert_to_pdf(input_path, output_dir=output_dir)
