@@ -16,6 +16,7 @@ from gui.feedback import ConfirmPanel, ErrorPanel, InfoPanel, toast
 from gui.empty_state import EmptyState
 from gui.file_sheet import FileSheet
 from gui.insert_sheet import InsertSheet
+from gui.widgets import FlatButton
 from gui.menu import MenuPopover, build
 from gui.theme import (ACCENT, INK, INK_2, INK_3, MARKER, OK, SURFACE,
                         font, init_theme)
@@ -88,23 +89,21 @@ class MainWindow:
                   font=font('wordmark'), foreground=INK_2).pack(
                       side='left', padx=(16, 10), pady=8)
 
-        ttk.Button(bar, text='⋯', style='Surface.Ghost.TButton',
-                   command=self._show_more_menu).pack(
-                       side='right', padx=(2, 12), pady=6)
+        FlatButton(bar, '⋯', command=self._show_more_menu, variant='ghost',
+                   bg=SURFACE, width=32).pack(side='right', padx=(2, 12),
+                                             pady=6)
         self._dirty_dot = tk.Canvas(bar, width=10, height=10,
                                     highlightthickness=0, bg=SURFACE)
         self._dirty_dot.pack(side='right', padx=(0, 2))
-        self._save_button = ttk.Button(
-            bar, text='保存', style='Primary.TButton', command=self.save_pdf,
-            state='disabled')
+        self._save_button = FlatButton(
+            bar, '保存', command=self.save_pdf, variant='primary', bg=SURFACE)
         self._save_button.pack(side='right', padx=(0, 4), pady=6)
-        self._insert_button = ttk.Button(
-            bar, text='插入', style='Surface.Secondary.TButton',
-            command=self.insert_file_dialog, state='disabled')
+        self._insert_button = FlatButton(
+            bar, '插入', command=self.insert_file_dialog,
+            variant='secondary', bg=SURFACE)
         self._insert_button.pack(side='right', padx=(0, 2), pady=6)
-        ttk.Button(bar, text='打开', style='Surface.Secondary.TButton',
-                   command=self.open_pdf).pack(side='right', padx=(0, 6),
-                                               pady=6)
+        FlatButton(bar, '打开', command=self.open_pdf, variant='secondary',
+                   bg=SURFACE).pack(side='right', padx=(0, 6), pady=6)
 
     def _paint_dirty(self):
         self._dirty_dot.delete('all')
@@ -220,16 +219,16 @@ class MainWindow:
         if empty:
             self._paned.pack_forget()
             self.empty_state.pack(fill='both', expand=True)
-            self._save_button.configure(state='disabled')
-            self._insert_button.configure(state='disabled')
+            self._save_button.configure_state(False)
+            self._insert_button.configure_state(False)
             self._refresh_undo_buttons()
         else:
             self.empty_state.pack_forget()
             self._paned.pack(**self._paned_pack)
             self.root.update_idletasks()
             self._set_rail_width(self._paned)
-            self._save_button.configure(state='normal')
-            self._insert_button.configure(state='normal')
+            self._save_button.configure_state(True)
+            self._insert_button.configure_state(True)
 
     def _set_rail_width(self, paned, width=280):
         try:

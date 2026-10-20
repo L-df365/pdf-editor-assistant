@@ -5,6 +5,7 @@ import tkinter as tk
 from tkinter import ttk
 
 from gui.feedback import Sheet
+from gui.widgets import FlatButton
 from gui.theme import INK, INK_2, INK_3, LINE, font
 
 
@@ -66,11 +67,11 @@ class InsertSheet(Sheet):
 
     def _build_footer(self):
         foot = self.button_frame
-        ttk.Button(foot, text='取消', style='Paper.Ghost.TButton',
-                   command=self._cancel).pack(side='right')
-        ttk.Button(foot, text='插入 {} 个文件'.format(len(self.paths)),
-                   style='Primary.TButton',
-                   command=self._confirm).pack(side='right', padx=(0, 8))
+        FlatButton(foot, '取消', command=self._cancel, variant='ghost',
+                   bg=PAPER).pack(side='right', pady=3)
+        FlatButton(foot, '插入 {} 个文件'.format(len(self.paths)),
+                   command=self._confirm, variant='primary',
+                   bg=PAPER).pack(side='right', padx=(0, 8), pady=3)
 
     def _confirm(self):
         choice = self._choice.get()

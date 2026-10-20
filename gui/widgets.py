@@ -1,0 +1,209 @@
+"""自绘圆角按钮。
+
+ttk 画不出圆角（clam 主题只有方角），所以可见的操作按钮统一用这个：
+纸面填充 / 1px 细线 / 墨青主色 / 悬停与按下反馈 / 焦点环。
+"""
+
+import tkinter as tk
+from tkinter import font as tkfont
+
+from gui.draw import rounded_rect
+from gui.theme import (ACCENT, ACCENT_DEEP, ACCENT_TINT, DANGER, DANGER_TINT,
+                        INK, INK_2, INK_3, LINE, PAPER, font)
+
+RADIUS = 6
+PAD_X = 12
+PAD_Y = 5
+
+# 变体: (填充, 描边, 文字, 悬停填充, 悬停文字)
+VARIANTS = {
+    'primary': (ACCENT, ACCENT, PAPER, ACCENT_DEEP, PAPER),
+    'secondary': (PAPER, LINE, INK, ACCENT_TINT, INK),
+    'ghost': ('', '', INK_2, ACCENT_TINT, INK),
+    'danger': ('', '', DANGER, DANGER_TINT, DANGER),
+    'menu': ('', '', INK, ACCENT_TINT, INK),
+    'segment': ('', '', INK_2, ACCENT_TINT, INK),
+    'segment-on': (ACCENT_TINT, '', ACCENT, ACCENT_TINT, ACCENT),
+}
+
+
+def bg_of(parent, fallback=PAPER):
+    """取父容器的背景色（ttk 控件没有 -bg 选项）。"""
+    try:
+        return parent.cget('bg')
+    except tk.TclError:
+        return fallback
+
+
+class FlatButton(tk.Canvas):
+    """圆角按钮。"""
+
+    def __init__(self, parent, text, command=None, variant='secondary',
+                 icon='', bg=None, width=None, state='normal'):
+        super().__init__(parent, highlightthickness=0, bd=0,
+                         bg=bg or bg_of(parent))
+        self._text = text
+        self._icon = icon
+        self._command = command
+        self._variant = variant
+        self._state = state
+        self._hover = False
+        self._pressed = False
+        self._focus = False
+        self._width = width
+        self._font = tkfont.Font(font=font('body'))
+        self._icon_font = tkfont.Font(font=font('body', 'bold'))
+        self.bind('<Configure>', lambda e: self._redraw())
+        self.bind('<Enter>', self._on_enter)
+        self.bind('<Leave>', self._on_leave)
+        self.bind('<ButtonPress-1>', self._on_press)
+        self.bind('<ButtonRelease-1>', self._on_release)
+        self.bind('<FocusIn>', self._on_focus_in)
+        self.bind('<FocusOut>', self._on_focus_out)
+        self.bind('<Return>', self._on_key)
+        self.bind('<space>', self._on_key)
+        self._redraw()
+
+    # -- 状态 ----------------------------------------------------------
+
+    def configure_state(self, enabled=True):
+        self._state = 'normal' if enabled else 'disabled'
+        self.configure(cursor='hand2' if enabled else 'arrow')
+        self._redraw()
+        return self
+
+    def set_text(self, text):
+        self._text = text
+        self._redraw()
+        return self
+
+    def set_command(self, command):
+        self._command = command
+        return self
+
+    def set_variant(self, variant):
+        self._variant = variant
+        self._redraw()
+        return self
+
+    def _on_enter(self, event=None):
+        self._hover = True
+        self._redraw()
+
+    def _on_leave(self, event=None):
+        self._hover = False
+        self._pressed = False
+        self._redraw()
+
+    def _on_press(self, event=None):
+        if self._state != 'normal':
+            return
+        self._pressed = True
+        self.focus_set()
+        self._redraw()
+
+    def _on_release(self, event=None):
+        if self._state != 'normal':
+            return
+        was = self._pressed
+        self._pressed = False
+        self._redraw()
+        if was and self._command:
+            self._command()
+
+    def _on_focus_in(self, event=None):
+        self._focus = True
+        self._redraw()
+
+    def _on_focus_out(self, event=None):
+        self._focus = False
+        self._redraw()
+
+    def _on_key(self, event=None):
+        if self._state == 'normal' and self._command:
+            self._command()
+
+    # -- 绘制 ----------------------------------------------------------
+
+    def _measure(self):
+        text_w = self._font.measure(self._text) if self._text else 0
+        icon_w = self._icon_font.measure(self._icon) if self._icon else 0
+        gap = 5 if (icon_w and text_w) else 0
+        width = text_w + icon_w + gap + PAD_X * 2
+        if self._width:
+            width = max(self._width, width)
+        height = max(self._font.metrics('linespace'), 18) + PAD_Y * 2
+        return int(width), int(height)
+
+    def _redraw(self):
+        self.delete('all')
+        width, height = self._measure()
+        self.configure(width=width, height=height)
+
+        fill, border, fg, hover_fill, hover_fg = VARIANTS.get(
+            self._variant, VARIANTS['secondary'])
+        if self._state == 'disabled':
+            fill = LINE if self._variant == 'primary' else ''
+            border = LINE if border else ''
+            fg = INK_3
+            hover_fill, hover_fg = fill, fg
+        elif self._hover or self._pressed:
+            fill = hover_fill or fill
+            fg = hover_fg
+
+        if fill:
+            rounded_rect(self, 0, 0, width, height, RADIUS, fill=fill)
+        if border:
+            rounded_rect(self, 0, 0, width, height, RADIUS, outline=border,
+                         width=1)
+        if self._focus and self._state == 'normal':
+            rounded_rect(self, 2, 2, width - 2, height - 2, RADIUS - 1,
+                         outline=ACCENT, width=2)
+
+        x = PAD_X
+        if self._icon:
+            self.create_text(x, height / 2, text=self._icon, anchor='w',
+                             fill=fg, font=self._icon_font)
+            x += self._icon_font.measure(self._icon)
+            if self._text:
+                x += 5
+        if self._text:
+            self.create_text(x, height / 2, text=self._text, anchor='w',
+                             fill=fg, font=self._font)
+
+
+class Chip(tk.Canvas):
+    """小色块标签（例如"已选 3 个文件"）。"""
+
+    def __init__(self, parent, text='', bg=ACCENT_TINT, fg=ACCENT, pad_x=10,
+                 pad_y=4):
+        super().__init__(parent, highlightthickness=0, bd=0,
+                         bg=bg_of(parent))
+        self._text = text
+        self._bg_color = bg
+        self._fg = fg
+        self._pad_x = pad_x
+        self._pad_y = pad_y
+        self._font = tkfont.Font(font=font('body', 'bold'))
+        self.bind('<Configure>', lambda e: self._redraw())
+        self._redraw()
+
+    def set_text(self, text):
+        self._text = text
+        self._redraw()
+        return self
+
+    def get_text(self):
+        return self._text
+
+    def _redraw(self):
+        self.delete('all')
+        text_w = self._font.measure(self._text) if self._text else 0
+        width = text_w + self._pad_x * 2
+        height = max(self._font.metrics('linespace'), 16) + self._pad_y * 2
+        self.configure(width=width, height=height)
+        if self._text:
+            rounded_rect(self, 0, 0, width, height, RADIUS,
+                         fill=self._bg_color)
+            self.create_text(width / 2, height / 2, text=self._text,
+                             fill=self._fg, font=self._font)

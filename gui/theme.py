@@ -32,6 +32,7 @@ ACCENT_TINT = '#E2EFEC'  # 选中底、标签底
 MARKER = '#E9A62A'      # 荧光琥珀：仅「当前页 / 进行中」标记
 MARKER_INK = '#8A5A00'  # 琥珀底上的文字
 DANGER = '#B4462F'      # 删除、破坏性动作
+DANGER_TINT = '#F8E7E3'  # 危险项悬停底
 OK = '#2F7D5B'         # 已保存、状态点「可用」
 
 
@@ -363,16 +364,16 @@ def _configure_styles(style):
     _set(style, 'Vertical.TSeparator', background=LINE)
 
     # 滚动条：无箭头细条
-    _set(style, 'Vertical.TScrollbar', background=LINE_SOFT, troughcolor=BG,
-         bordercolor=BG, lightcolor=LINE_SOFT, darkcolor=LINE_SOFT,
-         arrowcolor=INK_3, arrowsize=0, borderwidth=0, relief='flat',
-         width=10)
+    # 滚动条：不要设 arrowsize=0 —— clam 主题的宽度是由箭头决定的，
+    # 去掉箭头会把滚动条压成 1px（看上去就是"滚动条没了"）。
+    _set(style, 'Vertical.TScrollbar', background=LINE, troughcolor=BG,
+         bordercolor=BG, lightcolor=LINE, darkcolor=LINE,
+         arrowcolor=INK_3, borderwidth=0, relief='flat')
     _map(style, 'Vertical.TScrollbar',
          background=[('pressed', INK_2), ('active', INK_3)])
-    _set(style, 'Horizontal.TScrollbar', background=LINE_SOFT, troughcolor=BG,
-         bordercolor=BG, lightcolor=LINE_SOFT, darkcolor=LINE_SOFT,
-         arrowcolor=INK_3, arrowsize=0, borderwidth=0, relief='flat',
-         thickness=10)
+    _set(style, 'Horizontal.TScrollbar', background=LINE, troughcolor=BG,
+         bordercolor=BG, lightcolor=LINE, darkcolor=LINE,
+         arrowcolor=INK_3, borderwidth=0, relief='flat')
     _map(style, 'Horizontal.TScrollbar',
          background=[('pressed', INK_2), ('active', INK_3)])
 
@@ -413,11 +414,44 @@ def init_theme(root):
     if 'clam' in style.theme_names():
         style.theme_use('clam')
     _configure_styles(style)
+    style_scrollbars(style)
 
     try:
         root.configure(background=BG)
     except tk.TclError:
         pass
+    return style
+
+
+def style_scrollbars(style):
+    """把系统滚动条换成我们的配色。
+
+    注意：不要自建带 layout 的样式 —— 那样 ttk 会把它算成 1px 宽
+    （等于看不见）。直接改内置样式，宽度保持系统的 14px。
+    """
+    for orient in ('Vertical', 'Horizontal'):
+        name = '{}.TScrollbar'.format(orient)
+        try:
+            style.configure(
+                name,
+                troughcolor=BG,
+                bordercolor=BG,
+                lightcolor=BG,
+                darkcolor=BG,
+                background=LINE,
+                borderwidth=0,
+                relief='flat',
+                arrowcolor=INK_3,
+            )
+            style.map(
+                name,
+                background=[('active', INK_3), ('pressed', INK_2)],
+                bordercolor=[('active', BG)],
+                lightcolor=[('active', BG)],
+                darkcolor=[('active', BG)],
+            )
+        except tk.TclError:
+            continue
     return style
 
 

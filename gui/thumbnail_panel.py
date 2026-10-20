@@ -43,8 +43,9 @@ class ThumbnailPanel:
 
         self.canvas = tk.Canvas(canvas_frame, highlightthickness=0,
                                 bg=SURFACE, highlightbackground=SURFACE)
-        self.scrollbar = ttk.Scrollbar(canvas_frame, orient='vertical',
-                                       command=self.canvas.yview)
+        self.scrollbar = ttk.Scrollbar(
+            canvas_frame, orient='vertical', command=self.canvas.yview,
+            )
         self.inner = tk.Frame(self.canvas, bg=SURFACE)
 
         self.inner.bind('<Configure>', self._on_inner_configure)
@@ -83,11 +84,17 @@ class ThumbnailPanel:
         self._sync_scrollbar()
 
     def _sync_scrollbar(self):
-        """内容超出时显示滚动条；滚轮在卡片上也能滚。"""
+        """内容超出时显示滚动条；滚轮在卡片上也能滚。
+
+        注意 pack 顺序：画布先 pack 会把宽度全占光，滚动条被挤成 0 宽
+        （看上去就是"滚动条没了"）。所以用 before= 把滚动条排在画布前面。
+        """
         needed = self.inner.winfo_reqheight() > self.canvas.winfo_height() + 4
-        if needed and not self.scrollbar.winfo_ismapped():
-            self.scrollbar.pack(side='right', fill='y')
-        elif not needed and self.scrollbar.winfo_ismapped():
+        if needed:
+            if not self.scrollbar.winfo_ismapped():
+                self.scrollbar.pack(side='right', fill='y',
+                                   before=self.canvas)
+        elif self.scrollbar.winfo_ismapped():
             self.scrollbar.pack_forget()
         self.canvas.configure(yscrollcommand=self.scrollbar.set)
 

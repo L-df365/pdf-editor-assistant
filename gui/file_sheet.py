@@ -17,6 +17,7 @@ from tkinter import ttk
 from core import formats
 from core.settings import load_recent
 from gui.feedback import Sheet
+from gui.widgets import Chip, FlatButton
 from gui.theme import (ACCENT, ACCENT_TINT, INK, INK_2, INK_3, LINE, PAPER,
                         SURFACE, font)
 
@@ -135,8 +136,8 @@ class FileSheet(Sheet):
 
     def _build_footer(self, confirm_text):
         foot = self.button_frame
-        ttk.Button(foot, text='浏览全部文件…', style='Paper.Secondary.TButton',
-                   command=self._browse).pack(side='left')
+        FlatButton(foot, '浏览全部文件…', command=self._browse,
+                   variant='secondary', bg=PAPER).pack(side='left', pady=3)
 
         entry = ttk.Entry(foot, width=16, font=font('body'))
         entry.pack(side='left', padx=(12, 8))
@@ -145,21 +146,20 @@ class FileSheet(Sheet):
         entry.bind('<Return>', lambda e: self._confirm_entry())
         entry.bind('<FocusOut>', lambda e: self._sync_entry())
 
-        self.confirm_button = ttk.Button(
-            foot, text=confirm_text, style='Paper.Primary.TButton',
-            command=self._confirm, state='disabled')
-        self.confirm_button.pack(side='right')
-        ttk.Button(foot, text='取消', style='Paper.Ghost.TButton',
-                   command=self._cancel).pack(side='right', padx=(0, 8))
-        self.selection_label = tk.Label(
-            foot, text='', bg=ACCENT_TINT, fg=ACCENT,
-            anchor='w', font=font('body', 'bold'), padx=12, pady=6)
-        self.selection_label.pack(side='right', padx=(0, 12))
+        self.confirm_button = FlatButton(
+            foot, confirm_text, command=self._confirm, variant='primary',
+            bg=PAPER)
+        self.confirm_button.configure_state(False)
+        self.confirm_button.pack(side='right', pady=3)
+        FlatButton(foot, '取消', command=self._cancel, variant='ghost',
+                   bg=PAPER).pack(side='right', padx=(0, 8), pady=3)
+        self.selection_label = Chip(foot, text='', bg=ACCENT_TINT, fg=ACCENT)
+        self.selection_label.pack(side='right', padx=(0, 12), pady=4)
         self.selection_label.pack_forget()
         if self.multi:
-            ttk.Button(foot, text='全选', style='Paper.Ghost.TButton',
-                       command=self._select_all).pack(side='left',
-                                                       padx=(8, 0))
+            FlatButton(foot, '全选', command=self._select_all,
+                       variant='ghost', bg=PAPER).pack(side='left',
+                                                     padx=(8, 0), pady=3)
 
     # ------------------------------------------------------------------
     # 常用位置
@@ -337,16 +337,15 @@ class FileSheet(Sheet):
     def _update_selection_label(self):
         count = len(self.selected)
         if count and self.multi:
-            self.selection_label.configure(
-                text='✓ 已选 {} 个文件'.format(count))
+            self.selection_label.set_text(
+                '✓ 已选 {} 个文件'.format(count))
             if not self.selection_label.winfo_ismapped():
                 self.selection_label.pack(side='right', padx=(0, 12))
         else:
-            self.selection_label.configure(text='')
+            self.selection_label.set_text('')
             if self.selection_label.winfo_ismapped():
                 self.selection_label.pack_forget()
-        self.confirm_button.configure(
-            state='normal' if count else 'disabled')
+        self.confirm_button.configure_state(bool(count))
 
     def _update_preview(self, path):
         row = self._row(path)

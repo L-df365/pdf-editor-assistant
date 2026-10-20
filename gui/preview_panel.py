@@ -2,9 +2,9 @@ import tkinter as tk
 from tkinter import ttk
 
 from gui.feedback import attach_tooltip
+from gui.widgets import FlatButton
 from gui.menu import MenuPopover, build
-from gui.theme import (ACCENT, INK_2, LINE, PAPER, STAGE, SURFACE,
-                        font)
+from gui.theme import (ACCENT, INK_2, LINE, PAPER, STAGE, SURFACE, font)
 
 #: 缩放档位：(显示名, 取值)
 ZOOM_MODES = (
@@ -49,21 +49,20 @@ class PreviewPanel:
         bar = tk.Frame(self.frame, bg=PAPER, highlightbackground=LINE,
                        highlightthickness=1)
 
-        def action(text, command, style='Paper.Segment.TButton'):
-            ttk.Button(bar, text=text, style=style,
-                       command=command).pack(side='left', padx=1, pady=1)
+        def action(text, command, style='Paper.Segment.TButton', width=None):
+            variant = 'danger' if style == 'Paper.Danger.TButton' else 'segment'
+            button = FlatButton(bar, text, command=command, variant=variant,
+                               bg=PAPER, width=width)
+            button.pack(side='left', padx=1, pady=1)
+            return button
 
         if self.on_undo:
-            self.undo_button = ttk.Button(
-                bar, text='←', style='Paper.Segment.TButton',
-                command=self.on_undo, state='disabled', width=3)
-            self.undo_button.pack(side='left', padx=1, pady=1)
+            self.undo_button = action('←', self.on_undo, width=30)
+            self.undo_button.configure_state(False)
             attach_tooltip(self.undo_button, '撤销（Ctrl+Z）')
         if self.on_redo:
-            self.redo_button = ttk.Button(
-                bar, text='→', style='Paper.Segment.TButton',
-                command=self.on_redo, state='disabled', width=3)
-            self.redo_button.pack(side='left', padx=1, pady=1)
+            self.redo_button = action('→', self.on_redo, width=30)
+            self.redo_button.configure_state(False)
             attach_tooltip(self.redo_button, '重做（Ctrl+Shift+Z）')
         if self.on_undo or self.on_redo:
             tk.Frame(bar, bg=PAPER, width=1, height=18,
@@ -86,10 +85,12 @@ class PreviewPanel:
 
         self.canvas = tk.Canvas(canvas_frame, highlightthickness=0,
                                 bg=STAGE, highlightbackground=STAGE)
-        self.h_scroll = ttk.Scrollbar(canvas_frame, orient='horizontal',
-                                      command=self.canvas.xview)
-        self.v_scroll = ttk.Scrollbar(canvas_frame, orient='vertical',
-                                      command=self.canvas.yview)
+        self.h_scroll = ttk.Scrollbar(
+            canvas_frame, orient='horizontal', command=self.canvas.xview,
+            )
+        self.v_scroll = ttk.Scrollbar(
+            canvas_frame, orient='vertical', command=self.canvas.yview,
+            )
         self.canvas.configure(xscrollcommand=self.h_scroll.set,
                               yscrollcommand=self.v_scroll.set)
 
@@ -122,10 +123,10 @@ class PreviewPanel:
         self.zoom_frame.pack(side='left', padx=2, pady=2)
         self._zoom_buttons = {}
         for label, value in ZOOM_MODES:
-            btn = ttk.Button(self.zoom_frame, text=label,
-                             style='Segment.TButton',
+            btn = FlatButton(self.zoom_frame, label, variant='segment',
+                             bg=SURFACE,
                              command=lambda v=value: self.set_zoom(v))
-            btn.pack(side='left')
+            btn.pack(side='left', padx=1, pady=1)
             self._zoom_buttons[value] = btn
         self._paint_zoom()
 
@@ -173,8 +174,7 @@ class PreviewPanel:
 
     def _paint_zoom(self):
         for value, btn in self._zoom_buttons.items():
-            btn.configure(style='SegmentOn.TButton' if value == self._mode
-                          else 'Segment.TButton')
+            btn.set_variant('segment-on' if value == self._mode else 'segment')
 
     def show_page(self, pdf_doc, page_num):
         if not pdf_doc or not pdf_doc.doc:

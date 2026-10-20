@@ -8,6 +8,7 @@ import tkinter as tk
 from tkinter import ttk
 
 from gui.draw import drop_shadow, rounded_rect
+from gui.widgets import FlatButton
 from gui.theme import (ACCENT, DANGER, INK, INK_2, INK_3, LINE, MARKER, OK,
                         PAPER, font)
 
@@ -181,13 +182,11 @@ class ConfirmPanel(Sheet):
     def __init__(self, parent, title, body, confirm_text='确认',
                  danger=True):
         super().__init__(parent, title, body)
-        ttk.Button(self.button_frame, text='取消',
-                   style='Paper.Ghost.TButton',
-                   command=self._cancel).pack(side='right')
-        ttk.Button(self.button_frame, text=confirm_text,
-                   style='Paper.Danger.TButton' if danger
-                   else 'Primary.TButton',
-                   command=self._confirm).pack(side='right', padx=(0, 8))
+        FlatButton(self.button_frame, '取消', command=self._cancel,
+                   variant='ghost', bg=PAPER).pack(side='right', pady=2)
+        FlatButton(self.button_frame, confirm_text, command=self._confirm,
+                   variant='danger' if danger else 'primary',
+                   bg=PAPER).pack(side='right', padx=(0, 8), pady=2)
 
     def _confirm(self):
         self.result = True
@@ -221,12 +220,10 @@ class ErrorPanel(Sheet):
             self._detail_box.configure(state='disabled')
             self._detail_box.pack_forget()
 
-        ttk.Button(self.button_frame, text='复制详情',
-                   style='Paper.Ghost.TButton',
-                   command=self._copy_detail).pack(side='left')
-        ttk.Button(self.button_frame, text='关闭',
-                   style='Primary.TButton',
-                   command=self._cancel).pack(side='right')
+        FlatButton(self.button_frame, '复制详情', command=self._copy_detail,
+                   variant='ghost', bg=PAPER).pack(side='left', pady=2)
+        FlatButton(self.button_frame, '关闭', command=self._cancel,
+                   variant='primary', bg=PAPER).pack(side='right', pady=2)
 
     def _show_detail(self):
         self._detail_visible = not self._detail_visible
@@ -270,8 +267,8 @@ class InfoPanel(Sheet):
             ttk.Label(self.body_frame, text=footnote, style='Paper.TLabel',
                       font=font('meta'), foreground=INK_2, wraplength=420,
                       justify='left').pack(anchor='w', pady=(12, 0))
-        ttk.Button(self.button_frame, text='关闭', style='Primary.TButton',
-                   command=self._cancel).pack(side='right')
+        FlatButton(self.button_frame, '关闭', command=self._cancel,
+                   variant='primary', bg=PAPER).pack(side='right', pady=2)
 
     @staticmethod
     def show(parent, title, rows, footnote=''):

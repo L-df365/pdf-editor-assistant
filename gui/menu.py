@@ -168,11 +168,11 @@ class MenuPopover:
         for kind, item, size in rows:
             if kind == 'separator':
                 self._canvas.create_line(PADDING_X, y + 4, width - PADDING_X,
-                                         y + 4, fill=LINE)
+                                         y + 4, fill=LINE, tags='text')
             elif kind == 'label':
                 self._canvas.create_text(
                     PADDING_X, y + size / 2, text=item.label, anchor='w',
-                    fill=INK_3, font=font('meta'))
+                    fill=INK_3, font=font('meta'), tags='text')
             else:
                 self._draw_item(item, y, width, size)
                 self._rows.append((item, y, size))
@@ -198,14 +198,14 @@ class MenuPopover:
                 ICON_X, y + size / 2, text=item.icon, anchor='w',
                 fill=ACCENT if item.checked else (INK_3 if not item.enabled
                                                  else INK_2),
-                font=font('body'))
+                font=font('body'), tags='text')
         self._canvas.create_text(
             self._label_x, y + size / 2, text=item.label, anchor='w',
-            fill=color, font=font('body'))
+            fill=color, font=font('body'), tags='text')
         if item.accelerator:
             self._canvas.create_text(
                 width - PADDING_X, y + size / 2, text=item.accelerator,
-                anchor='e', fill=INK_3, font=font('num'))
+                anchor='e', fill=INK_3, font=font('num'), tags='text')
 
     # -- 交互 ----------------------------------------------------------
 
@@ -230,6 +230,9 @@ class MenuPopover:
         tint = DANGER_TINT if item.danger else ACCENT_TINT
         rounded_rect(self._canvas, 3, top + 1, self._canvas.winfo_width() - 3,
                  top + size - 1, 4, fill=tint, tags='hover')
+        self._canvas.tag_lower('hover', 'text')
+        # 悬停底色必须压在文字下面，否则文字会被盖掉
+        self._canvas.tag_lower('hover', 'text')
 
     def _on_click(self, event):
         if self._win is not None:
@@ -275,6 +278,9 @@ class MenuPopover:
         tint = DANGER_TINT if item.danger else ACCENT_TINT
         rounded_rect(self._canvas, 3, top + 1, self._canvas.winfo_width() - 3,
                  top + size - 1, 4, fill=tint, tags='hover')
+        self._canvas.tag_lower('hover', 'text')
+        # 悬停底色必须压在文字下面，否则文字会被盖掉
+        self._canvas.tag_lower('hover', 'text')
 
 
 def build(items):
