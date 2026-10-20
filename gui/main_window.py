@@ -9,7 +9,7 @@ import threading
 from core.backends import installer
 from core.pdf_document import PDFDocument
 from core.settings import load_backend, save_backend
-from gui.theme import ACCENT, INK_2, LINE, PAPER, SURFACE, init_theme
+from gui.theme import init_theme
 from gui.thumbnail_panel import ThumbnailPanel
 from gui.preview_panel import PreviewPanel
 
