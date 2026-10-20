@@ -15,6 +15,7 @@ from core.settings import push_recent
 from gui.feedback import ConfirmPanel, ErrorPanel, InfoPanel, toast
 from gui.empty_state import EmptyState
 from gui.file_sheet import FileSheet
+from gui.insert_sheet import InsertSheet
 from gui.menu import ContextMenu, PreviewMenu, add_group, add_item, style_menu
 from gui.theme import (ACCENT, INK_2, INK_3, MARKER, OK, SURFACE,
                         font, init_theme)
@@ -51,6 +52,8 @@ class MainWindow:
         self._converting = False
         self._installing = False
         self._install_log = []
+        self._tasks = queue.Queue()
+        self._pending_paths = []
 
         if not os.environ.get('PDF_EDIT_BACKEND'):
             saved = load_backend()
@@ -73,6 +76,7 @@ class MainWindow:
         self._bind_shortcuts()
 
         self.root.after(250, self._check_backends_on_startup)
+        self.root.after(120, self._poll_tasks)
 
     def _build_menu(self):
         menubar = style_menu(tk.Menu(self.root))
@@ -271,7 +275,8 @@ class MainWindow:
         else:
             self.empty_state.pack_forget()
             self._paned.pack(**self._paned_pack)
-            self.root.after(60, lambda: self._set_rail_width(self._paned))
+            self.root.update_idletasks()
+            self._set_rail_width(self._paned)
             self._save_button.configure(state='normal')
 
     def _set_rail_width(self, paned, width=280):
@@ -634,6 +639,17 @@ class MainWindow:
         bind('<Control-Q>', lambda e: self._on_close())
         bind('<Delete>', self._on_delete_key)
 
+    def _poll_tasks(self):
+        """工作线程只投递结果，由主线程统一消费（避免跨线程操作 Tk）。"""
+        try:
+            while True:
+                kind, payload = self._tasks.get_nowait()
+                if kind == 'insert':
+                    self._insert_done_many(*payload)
+        except queue.Empty:
+            pass
+        self.root.after(120, self._poll_tasks)
+
     def _on_delete_key(self, event=None):
         widget = self.root.focus_get()
         if isinstance(widget, (tk.Entry, tk.Text, ttk.Entry)):
@@ -727,12 +743,12 @@ class MainWindow:
             self.doc.open(path)
             push_recent(path)
             self.current_page = 0
+            self._show_empty(False)
             self.thumb_panel.load_document(self.doc)
             self._show_page(0)
             self._update_status('已打开 {}'.format(
                 os.path.basename(path)))
             self._refresh_facts()
-            self._show_empty(False)
             self._update_title()
         except Exception as e:
             ErrorPanel.show(
@@ -865,9 +881,19 @@ class MainWindow:
         paths = self._pick_insert_files()
         if not paths:
             return
+        self._pending_paths = paths
         pos = self._ask_insert_position()
         if pos is not None:
             self._do_insert_many(paths, pos)
+
+    def _ask_insert_position(self):
+        """插入位置：当前页之后 / 文末 / 指定页。"""
+        sheet = InsertSheet(self.root, paths=self._pending_paths,
+                            current_page=self.current_page,
+                            page_count=self.doc.page_count)
+        sheet._place(self.root)
+        self.root.wait_window(sheet)
+        return sheet.result
 
     def insert_file_at(self, position):
         paths = self._pick_insert_files()
@@ -890,40 +916,6 @@ class MainWindow:
             initialdir=directory or HOME_DIR,
             filetypes=formats.filetypes())
 
-    def _ask_insert_position(self):
-        dialog = tk.Toplevel(self.root)
-        dialog.title('选择插入位置')
-        dialog.geometry('300x150')
-        dialog.transient(self.root)
-        dialog.grab_set()
-
-        ttk.Label(dialog, text='插入到第几页前？').pack(padx=15, pady=10)
-
-        var = tk.IntVar(value=self.current_page + 1)
-        max_val = self.doc.page_count + 1 if self.doc.doc else 1
-        spin = ttk.Spinbox(dialog, from_=1, to=max_val,
-                           textvariable=var, width=10)
-        spin.pack(pady=5)
-
-        result = [None]
-
-        def on_ok():
-            result[0] = var.get() - 1
-            dialog.destroy()
-
-        def on_cancel():
-            dialog.destroy()
-
-        btn_frame = ttk.Frame(dialog)
-        btn_frame.pack(pady=15)
-        ttk.Button(btn_frame, text='确定', command=on_ok).pack(
-            side='left', padx=10)
-        ttk.Button(btn_frame, text='取消', command=on_cancel).pack(
-            side='left', padx=10)
-
-        self.root.wait_window(dialog)
-        return result[0]
-
     def _do_insert_many(self, paths, position):
         if self._converting or not paths:
             return
@@ -942,8 +934,7 @@ class MainWindow:
                 error = e
             else:
                 error = None
-            self.root.after(0, self._insert_done_many, position, results,
-                            error)
+            self._tasks.put(('insert', (position, results, error)))
 
         threading.Thread(target=task, daemon=True).start()
 
@@ -984,41 +975,7 @@ class MainWindow:
             added, self.doc.page_count), 'ok')
 
     def _do_insert(self, filepath, position):
-        if self._converting:
-            return
-        self._converting = True
-        self._update_status('正在转换 {}…'.format(
-            os.path.basename(filepath)))
-        self.root.config(cursor='watch')
-        self.root.update()
-
-        def task():
-            try:
-                self.doc.insert_file(filepath, position)
-                self.root.after(0, self._insert_done, position, None)
-            except Exception as e:
-                self.root.after(0, self._insert_done, position, e)
-
-        threading.Thread(target=task, daemon=True).start()
-
-    def _insert_done(self, position, error):
-        self._converting = False
-        self.root.config(cursor='')
-        if error:
-            ErrorPanel.show(
-                self.root, '插入失败',
-                '这个文件没能转成页面。如果它正被 WPS 或 Word 打开着，'
-                '关掉之后重试一次。',
-                detail=str(error))
-            self._update_status('插入失败')
-            return
-
-        self.thumb_panel.refresh()
-        new_page = min(position, self.doc.page_count - 1)
-        self._show_page(new_page)
-        self._update_title()
-        self._refresh_facts()
-        self._update_status('已插入，共 {} 页'.format(self.doc.page_count))
+        self._do_insert_many([filepath], position)
 
     def _show_about(self):
         InfoPanel.show(

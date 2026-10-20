@@ -94,7 +94,7 @@ class ThumbnailPanel:
                 self.canvas.after_cancel(self._relayout_job)
             except tk.TclError:
                 pass
-        self._relayout_job = self.canvas.after(180, self._relayout)
+        self._relayout_job = self.canvas.after(120, self._relayout)
 
     def _column_count(self, width):
         if width >= self.THREE_COL_MIN:
@@ -107,7 +107,10 @@ class ThumbnailPanel:
         self._relayout_job = None
         if not self.doc or not self.doc.doc:
             return
-        width = max(self.canvas.winfo_width(), 120)
+        width = self.canvas.winfo_width()
+        if width < 120:
+            # 画布还没布局好，等下一次 <Configure> 再排
+            return
         cols = self._column_count(width)
         gutter = self.CARD_GAP * (cols - 1)
         available = (width - gutter - 8) / cols

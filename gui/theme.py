@@ -300,6 +300,17 @@ def _configure_styles(style):
          focuscolor=ACCENT, font=font('body'))
     _set(style, 'Surface.TRadiobutton', background=SURFACE, foreground=INK,
          focuscolor=ACCENT, font=font('body'))
+    _set(style, 'Paper.TCheckbutton', background=PAPER, foreground=INK,
+         focuscolor=ACCENT, font=font('body'))
+    _set(style, 'Paper.TRadiobutton', background=PAPER, foreground=INK,
+         focuscolor=ACCENT, font=font('body'))
+    # 指示器：纸白底 + 墨青勾
+    for name in ('TCheckbutton', 'TRadiobutton', 'Surface.TCheckbutton',
+                 'Surface.TRadiobutton', 'Paper.TCheckbutton',
+                 'Paper.TRadiobutton'):
+        _set(style, name, indicatorbackground=PAPER,
+             indicatorforeground=ACCENT, upperbordercolor=LINE,
+             lowerbordercolor=LINE, indicatorsize=11, indicatormargin=1)
 
     # 分隔线
     _set(style, 'TSeparator', background=LINE)
