@@ -7,7 +7,7 @@ Tk 的 `tk.Menu` 只能改颜色：没有圆角、阴影、图标、分区，做
 
 import tkinter as tk
 
-from gui.draw import rounded_rect
+from gui.draw import rounded_photo
 from gui.theme import (ACCENT, ACCENT_TINT, DANGER, INK, INK_2, INK_3, LINE,
                         PAPER, font)
 
@@ -153,12 +153,14 @@ class MenuPopover:
         total = sum(size for _, _, size in rows)
         width = 236
 
-        for offset, tone in enumerate(reversed(SHADOW_TONES), start=1):
-            rounded_rect(self._canvas, offset, offset, width + offset,
-                     total + offset, CORNER, fill=tone)
-
-        rounded_rect(self._canvas, 0, 0, width, total, CORNER, fill=PAPER,
-                 outline=LINE, width=1)
+        # 卡片背景：抗锯齿圆角 + 柔和投影（Canvas 的 pieslice 是硬边）
+        pad = self._pad = 7
+        self._canvas.configure(width=width + pad * 2, height=total + pad * 2)
+        self._card_photo = rounded_photo(
+            width, total, CORNER, PAPER, LINE, 1, shadow=True,
+            root=self.parent)
+        self._canvas.create_image(pad, pad, image=self._card_photo,
+                                  anchor='nw', tags='card')
 
         has_icon = any(getattr(item, 'icon', '') for item in self.items)
         self._label_x = LABEL_X if has_icon else PADDING_X + 2
@@ -179,9 +181,8 @@ class MenuPopover:
             y += size
 
         # 明确画布尺寸：否则浮层窗口会比菜单大一圈，露出白底
-        self._canvas.configure(width=width + 4, height=total + 4)
         self._win.update_idletasks()
-        self._win.geometry('{}x{}'.format(width + 4, total + 4))
+        self._win.geometry('{}x{}'.format(width + pad * 2, total + pad * 2))
 
         self._canvas.bind('<Motion>', self._on_motion)
         self._canvas.bind('<Button-1>', self._on_click)
@@ -228,8 +229,12 @@ class MenuPopover:
             self.active = -1
             return
         tint = DANGER_TINT if item.danger else ACCENT_TINT
-        rounded_rect(self._canvas, 3, top + 1, self._canvas.winfo_width() - 3,
-                 top + size - 1, 4, fill=tint, tags='hover')
+        pad = getattr(self, '_pad', 7)
+        self._hover_photo = rounded_photo(
+            max(self._canvas.winfo_width() - pad * 2 - 6, 8), size - 2, 5,
+            tint, root=self.parent)
+        self._canvas.create_image(pad + 3, top + 1, image=self._hover_photo,
+                                  anchor='nw', tags='hover')
         self._canvas.tag_lower('hover', 'text')
         # 悬停底色必须压在文字下面，否则文字会被盖掉
         self._canvas.tag_lower('hover', 'text')
@@ -276,8 +281,12 @@ class MenuPopover:
         if not item.enabled:
             return
         tint = DANGER_TINT if item.danger else ACCENT_TINT
-        rounded_rect(self._canvas, 3, top + 1, self._canvas.winfo_width() - 3,
-                 top + size - 1, 4, fill=tint, tags='hover')
+        pad = getattr(self, '_pad', 7)
+        self._hover_photo = rounded_photo(
+            max(self._canvas.winfo_width() - pad * 2 - 6, 8), size - 2, 5,
+            tint, root=self.parent)
+        self._canvas.create_image(pad + 3, top + 1, image=self._hover_photo,
+                                  anchor='nw', tags='hover')
         self._canvas.tag_lower('hover', 'text')
         # 悬停底色必须压在文字下面，否则文字会被盖掉
         self._canvas.tag_lower('hover', 'text')

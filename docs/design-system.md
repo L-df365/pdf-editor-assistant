@@ -13,7 +13,7 @@
 |---|---|
 | `gui/theme.py` | 颜色 / 字体 / 间距令牌 + ttk 样式（clam 主题） |
 | `gui/widgets.py` | 自绘圆角按钮 `FlatButton`、色块标签 `Chip`（ttk 画不出圆角） |
-| `gui/draw.py` | 圆角矩形绘制（Canvas 用 pieslice 拼角） |
+| `gui/draw.py` | 圆角矩形：PIL 按设备像素比渲染成抗锯齿图（Canvas 画的圆角是硬边） |
 
 **踩过的坑（都写进代码注释了）**
 
@@ -22,6 +22,7 @@
 - Canvas 浮层菜单：悬停高亮画在文字之后会把文字盖住 → 高亮要 `tag_lower` 到文字下面。
 - 缩略图点击：Label 没有自己的 GdkWindow，事件不会冒泡给父容器 → 点击要绑在真正接收事件的控件上。
 - 拖拽排序：不要指望事件冒泡（容器会吃掉 motion）→ 处理器挂在被按下的那个控件上。
+- 圆角：Canvas 的 `pieslice` 是硬边，锯齿明显 → 统一用 PIL 按设备像素比渲染成图再贴上去。
 
 ```
 main.py              入口

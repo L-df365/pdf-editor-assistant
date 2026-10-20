@@ -7,7 +7,7 @@
 import tkinter as tk
 from tkinter import ttk
 
-from gui.draw import drop_shadow, rounded_rect
+from gui.draw import rounded_photo
 from gui.widgets import FlatButton
 from gui.theme import (ACCENT, DANGER, INK, INK_2, INK_3, LINE, MARKER, OK,
                         PAPER, font)
@@ -142,10 +142,12 @@ class Sheet(tk.Toplevel):
         h = max(self._bg.winfo_height(), 40)
         self._bg.delete('card')
         m = self.MARGIN
-        drop_shadow(self._bg, m, m, w - m, h - m, self.RADIUS, offset=4,
-                    tags='card')
-        rounded_rect(self._bg, m, m, w - m, h - m, self.RADIUS, fill=PAPER,
-                     outline=LINE, width=1, tags='card')
+        # 抗锯齿圆角 + 柔和投影
+        self._card_photo = rounded_photo(
+            w - m * 2, h - m * 2, self.RADIUS, PAPER, LINE, 1, shadow=True,
+            root=self.winfo_toplevel())
+        self._bg.create_image(m, m, image=self._card_photo, anchor='nw',
+                              tags='card')
 
     def _cancel(self):
         self.result = False

@@ -2,7 +2,8 @@ import tkinter as tk
 from tkinter import ttk
 
 from gui.menu import MenuPopover, build
-from gui.theme import (ACCENT, ACCENT_TINT, INK_2, LINE, MARKER, PAPER,
+from gui.widgets import RoundedCard
+from gui.theme import (ACCENT, ACCENT_TINT, BG, INK_2, LINE, MARKER, PAPER,
                         SURFACE, font)
 
 
@@ -191,18 +192,19 @@ class ThumbnailPanel:
         self._relayout()
 
     def _add_card(self, page_num):
-        frame = tk.Frame(self.inner, relief='flat', borderwidth=0,
-                         bg=PAPER, highlightbackground=LINE,
-                         highlightthickness=1)
-        marker = tk.Frame(frame, width=3, bg=PAPER)
+        # 圆角卡片（抗锯齿）
+        frame = RoundedCard(self.inner, radius=5, fill=PAPER, outline=LINE,
+                             shadow=False, bg=BG)
+        body = frame.body
+        marker = tk.Frame(body, width=3, bg=PAPER)
         marker.pack(side='left', fill='y')
 
-        index = tk.Label(frame, text='{:02d}'.format(page_num + 1),
+        index = tk.Label(body, text='{:02d}'.format(page_num + 1),
                          font=font('num'), anchor='w', bg=PAPER,
                          foreground=INK_2, width=4)
         index.pack(side='left', fill='y', padx=(4, 2))
 
-        image = tk.Label(frame, text='', bg=PAPER, cursor='hand2')
+        image = tk.Label(body, text='', bg=PAPER, cursor='hand2')
         image.pack(side='left', padx=(0, 4), pady=4)
 
         card = {'frame': frame, 'marker': marker, 'index': index,

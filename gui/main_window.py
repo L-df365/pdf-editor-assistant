@@ -84,10 +84,8 @@ class MainWindow:
         bar.pack(fill='x')
         ttk.Separator(self.root, orient='horizontal').pack(fill='x')
 
-        # 文件名由窗口标题栏承担，顶栏不再重复，避免长文件名把按钮挤没
-        ttk.Label(bar, text='PDF 内嵌编辑助手', style='Surface.TLabel',
-                  font=font('wordmark'), foreground=INK_2).pack(
-                      side='left', padx=(16, 10), pady=8)
+        # 文件名由窗口标题栏承担，顶栏不再重复（也不要字标），避免长文件名
+        # 把按钮挤没；左侧留白，让顶栏只剩命令。
 
         FlatButton(bar, '⋯', command=self._show_more_menu, variant='ghost',
                    bg=SURFACE, width=32).pack(side='right', padx=(2, 12),

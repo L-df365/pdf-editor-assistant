@@ -2,7 +2,7 @@ import tkinter as tk
 from tkinter import ttk
 
 from gui.feedback import attach_tooltip
-from gui.widgets import FlatButton
+from gui.widgets import FlatButton, RoundedCard
 from gui.menu import MenuPopover, build
 from gui.theme import (ACCENT, INK_2, LINE, PAPER, STAGE, SURFACE, font)
 
@@ -39,15 +39,16 @@ class PreviewPanel:
         self._build_action_row()
         self._build_canvas()
         self._build_counter_bar()
-        self.action_bar.place(relx=0, rely=0, x=14, y=14)
-        self.action_bar.lift()
+        self.action_card.place(relx=0, rely=0, x=12, y=12)
+        self.action_card.lift()
 
     # ------------------------------------------------------------------
 
     def _build_action_row(self):
-        """页面级动作：浮在台面上的小工具条（不是第二条窗口栏）。"""
-        bar = tk.Frame(self.frame, bg=PAPER, highlightbackground=LINE,
-                       highlightthickness=1)
+        """页面级动作：浮在台面上的圆角工具条（不是第二条窗口栏）。"""
+        self.action_card = RoundedCard(self.frame, radius=10, fill=PAPER,
+                                      outline=LINE, shadow=True, bg=STAGE)
+        bar = self.action_card.body
 
         def action(text, command, style='Paper.Segment.TButton', width=None):
             variant = 'danger' if style == 'Paper.Danger.TButton' else 'segment'

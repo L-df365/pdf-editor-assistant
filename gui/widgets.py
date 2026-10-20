@@ -7,7 +7,7 @@ ttk 画不出圆角（clam 主题只有方角），所以可见的操作按钮�
 import tkinter as tk
 from tkinter import font as tkfont
 
-from gui.draw import rounded_rect
+from gui.draw import rounded_photo
 from gui.theme import (ACCENT, ACCENT_DEEP, ACCENT_TINT, DANGER, DANGER_TINT,
                         INK, INK_2, INK_3, LINE, PAPER, font)
 
@@ -143,22 +143,22 @@ class FlatButton(tk.Canvas):
         fill, border, fg, hover_fill, hover_fg = VARIANTS.get(
             self._variant, VARIANTS['secondary'])
         if self._state == 'disabled':
-            fill = LINE if self._variant == 'primary' else ''
-            border = LINE if border else ''
+            fill = LINE if self._variant == 'primary' else None
+            border = LINE if border else None
             fg = INK_3
             hover_fill, hover_fg = fill, fg
         elif self._hover or self._pressed:
             fill = hover_fill or fill
             fg = hover_fg
 
-        if fill:
-            rounded_rect(self, 0, 0, width, height, RADIUS, fill=fill)
-        if border:
-            rounded_rect(self, 0, 0, width, height, RADIUS, outline=border,
-                         width=1)
+        # 圆角用 PIL 渲染成抗锯齿的图（Canvas 画的圆角是硬边，锯齿重）
+        if fill or border:
+            self._photo = rounded_photo(width, height, RADIUS, fill, border)
+            self.create_image(0, 0, image=self._photo, anchor='nw')
         if self._focus and self._state == 'normal':
-            rounded_rect(self, 2, 2, width - 2, height - 2, RADIUS - 1,
-                         outline=ACCENT, width=2)
+            self._focus_photo = rounded_photo(
+                width - 4, height - 4, RADIUS - 1, None, ACCENT, 2)
+            self.create_image(2, 2, image=self._focus_photo, anchor='nw')
 
         x = PAD_X
         if self._icon:
@@ -203,7 +203,49 @@ class Chip(tk.Canvas):
         height = max(self._font.metrics('linespace'), 16) + self._pad_y * 2
         self.configure(width=width, height=height)
         if self._text:
-            rounded_rect(self, 0, 0, width, height, RADIUS,
-                         fill=self._bg_color)
+            self._photo = rounded_photo(width, height, RADIUS,
+                                        self._bg_color)
+            self.create_image(0, 0, image=self._photo, anchor='nw')
             self.create_text(width / 2, height / 2, text=self._text,
                              fill=self._fg, font=self._font)
+
+
+class RoundedCard(tk.Frame):
+    """圆角卡片容器：抗锯齿圆角背景 + 投影，内部可正常放控件。"""
+
+    SHADOW_PAD = 7
+
+    def __init__(self, parent, radius=10, fill=PAPER, outline=LINE,
+                 shadow=True, bg=None):
+        super().__init__(parent, bg=bg or bg_of(parent))
+        self._radius = radius
+        self._fill = fill
+        self._outline = outline
+        self._shadow = shadow
+        self._photo = None
+        self._canvas = tk.Canvas(self, highlightthickness=0, bd=0,
+                                 bg=self.cget('bg'))
+        self._canvas.pack(fill='both', expand=True)
+        self.body = tk.Frame(self._canvas, bg=fill)
+        self._window = self._canvas.create_window(0, 0, window=self.body,
+                                                 anchor='nw')
+        self.body.bind('<Configure>', lambda e: self._sync())
+        self._canvas.bind('<Configure>', lambda e: self._sync())
+
+    def _sync(self):
+        width = self.body.winfo_reqwidth()
+        height = self.body.winfo_reqheight()
+        if width <= 1 or height <= 1:
+            return
+        # 尺寸没变就别重画：否则 configure → <Configure> → configure 会打转
+        if (width, height) == getattr(self, '_last_size', None):
+            return
+        self._last_size = (width, height)
+        pad = self.SHADOW_PAD if self._shadow else 0
+        self._canvas.configure(width=width + pad * 2, height=height + pad * 2)
+        self._canvas.coords(self._window, pad, pad)
+        self._photo = rounded_photo(width, height, self._radius, self._fill,
+                                    self._outline, 1, self._shadow)
+        self._canvas.delete('card')
+        self._canvas.create_image(pad, pad, image=self._photo, anchor='nw')
+        self._canvas.tag_lower('card')
