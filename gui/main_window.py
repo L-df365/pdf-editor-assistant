@@ -10,7 +10,11 @@ from core.backends import installer
 from core.pdf_document import PDFDocument
 from core.settings import load_backend, save_backend
 from gui.backend_dialog import BackendDialog
+from core import formats
+from core.settings import push_recent
 from gui.feedback import ConfirmPanel, ErrorPanel, InfoPanel, toast
+from gui.empty_state import EmptyState
+from gui.file_sheet import FileSheet
 from gui.menu import ContextMenu, PreviewMenu, add_group, add_item, style_menu
 from gui.theme import (ACCENT, INK_2, INK_3, MARKER, OK, SURFACE,
                         font, init_theme)
@@ -31,19 +35,6 @@ def _human_size(size):
                 return '{:.0f} B'.format(value)
             return '{:.1f} {}'.format(value, unit)
         value /= 1024.0
-
-FILETYPES = [
-    ('所有支持的文件',
-     '*.pdf *.docx *.doc *.xlsx *.xls *.pptx *.ppt '
-     '*.png *.jpg *.jpeg *.bmp *.gif *.tiff'),
-    ('PDF 文件', '*.pdf'),
-    ('Word 文档', '*.docx *.doc'),
-    ('Excel 表格', '*.xlsx *.xls'),
-    ('PowerPoint 演示', '*.pptx *.ppt'),
-    ('图片文件', '*.png *.jpg *.jpeg *.bmp *.gif *.tiff'),
-    ('所有文件', '*.*'),
-]
-
 
 class MainWindow:
     """主窗口。"""
@@ -196,9 +187,10 @@ class MainWindow:
         ttk.Button(row, text='⋯', style='Surface.Ghost.TButton',
                    command=self._show_overflow_menu).pack(
                        side='right', padx=2, pady=6)
-        ttk.Button(row, text='保存', style='Primary.TButton',
-                   command=self.save_pdf).pack(
-                       side='right', padx=(2, 8), pady=6)
+        self._save_button = ttk.Button(
+            row, text='保存', style='Primary.TButton', command=self.save_pdf,
+            state='disabled')
+        self._save_button.pack(side='right', padx=(2, 8), pady=6)
 
     def _paint_dirty(self):
         self._dirty_dot.delete('all')
@@ -237,9 +229,11 @@ class MainWindow:
 
     def _build_main_area(self):
         paned = ttk.PanedWindow(self.root, orient='horizontal')
-        paned.pack(fill='both', expand=True, padx=2, pady=2)
+        paned.pack(fill='both', expand=True)
+        self._paned_pack = dict(fill='both', expand=True)
 
         left_frame = ttk.Frame(paned, width=268)
+        self._left_frame = left_frame
         self.thumb_panel = ThumbnailPanel(
             left_frame,
             on_select=self._on_page_select,
@@ -255,6 +249,9 @@ class MainWindow:
         self.root.after(600, lambda: self._set_rail_width(paned))
 
         right_frame = ttk.Frame(paned)
+        self.empty_state = EmptyState(
+            self.root, on_open=self.open_pdf,
+            on_insert=self.insert_file_dialog)
         self.preview = PreviewPanel(
             right_frame,
             on_rotate=lambda angle: self.rotate_page(angle),
@@ -263,6 +260,19 @@ class MainWindow:
             on_export=self._export_current_page)
         self.preview.pack(fill='both', expand=True)
         paned.add(right_frame, weight=1)
+        self._show_empty(True)
+
+    def _show_empty(self, empty):
+        """没有文档时整屏显示空状态，有文档时显示页面轨与预览。"""
+        if empty:
+            self._paned.pack_forget()
+            self.empty_state.pack(fill='both', expand=True)
+            self._save_button.configure(state='disabled')
+        else:
+            self.empty_state.pack_forget()
+            self._paned.pack(**self._paned_pack)
+            self.root.after(60, lambda: self._set_rail_width(self._paned))
+            self._save_button.configure(state='normal')
 
     def _set_rail_width(self, paned, width=280):
         try:
@@ -715,12 +725,14 @@ class MainWindow:
         try:
             self.doc.close()
             self.doc.open(path)
+            push_recent(path)
             self.current_page = 0
             self.thumb_panel.load_document(self.doc)
             self._show_page(0)
             self._update_status('已打开 {}'.format(
                 os.path.basename(path)))
             self._refresh_facts()
+            self._show_empty(False)
             self._update_title()
         except Exception as e:
             ErrorPanel.show(
@@ -729,13 +741,17 @@ class MainWindow:
                 detail=str(e))
 
     def open_pdf(self):
-        path = filedialog.askopenfilename(
+        sheet = FileSheet(self.root, mode='open', confirm_text='打开',
+                          on_browse=self._browse_open)
+        paths = sheet.wait(self.root)
+        if paths:
+            self.open_file(paths[0])
+
+    def _browse_open(self, directory):
+        return filedialog.askopenfilename(
             title='打开 PDF 文件',
-            initialdir=HOME_DIR,
+            initialdir=directory or HOME_DIR,
             filetypes=[('PDF 文件', '*.pdf'), ('所有文件', '*.*')])
-        if not path:
-            return
-        self.open_file(path)
 
     def save_pdf(self):
         if not self.doc.doc:
@@ -840,33 +856,39 @@ class MainWindow:
     # ---------- 插入文件 ----------
 
     def _on_insert_after(self, page_num):
-        path = filedialog.askopenfilename(
-            title='选择要插入的文件',
-            initialdir=HOME_DIR,
-            filetypes=FILETYPES)
-        if not path:
+        paths = self._pick_insert_files()
+        if not paths:
             return
-        self._do_insert(path, page_num + 1)
+        self._do_insert_many(paths, page_num + 1)
 
     def insert_file_dialog(self):
-        path = filedialog.askopenfilename(
-            title='选择要插入的文件',
-            initialdir=HOME_DIR,
-            filetypes=FILETYPES)
-        if not path:
+        paths = self._pick_insert_files()
+        if not paths:
             return
         pos = self._ask_insert_position()
         if pos is not None:
-            self._do_insert(path, pos)
+            self._do_insert_many(paths, pos)
 
     def insert_file_at(self, position):
-        path = filedialog.askopenfilename(
-            title='选择要插入的文件',
-            initialdir=HOME_DIR,
-            filetypes=FILETYPES)
-        if not path:
+        paths = self._pick_insert_files()
+        if not paths:
             return
-        self._do_insert(path, position)
+        self._do_insert_many(paths, position)
+
+    def _pick_insert_files(self):
+        """快速入口面板选文件；插入模式默认停在当前 PDF 所在文件夹。"""
+        sheet = FileSheet(self.root, mode='insert',
+                          current_path=self.doc.filepath,
+                          confirm_text='插入',
+                          on_browse=self._browse_insert)
+        paths = sheet.wait(self.root)
+        return list(paths or [])
+
+    def _browse_insert(self, directory):
+        return filedialog.askopenfilename(
+            title='选择要插入的文件',
+            initialdir=directory or HOME_DIR,
+            filetypes=formats.filetypes())
 
     def _ask_insert_position(self):
         dialog = tk.Toplevel(self.root)
@@ -901,6 +923,65 @@ class MainWindow:
 
         self.root.wait_window(dialog)
         return result[0]
+
+    def _do_insert_many(self, paths, position):
+        if self._converting or not paths:
+            return
+        self._converting = True
+        names = '、'.join(os.path.basename(p) for p in paths[:2])
+        if len(paths) > 2:
+            names += ' 等 {} 个文件'.format(len(paths))
+        self._update_status('正在转换 {}…'.format(names))
+        self.root.config(cursor='watch')
+
+        def task():
+            try:
+                results = self.doc.insert_files(paths, position)
+            except Exception as e:
+                results = []
+                error = e
+            else:
+                error = None
+            self.root.after(0, self._insert_done_many, position, results,
+                            error)
+
+        threading.Thread(target=task, daemon=True).start()
+
+    def _insert_done_many(self, position, results, error):
+        self._converting = False
+        self.root.config(cursor='')
+        if error is not None:
+            ErrorPanel.show(
+                self.root, '插入失败',
+                '这个文件没能转成页面。如果它正被 WPS 或 Word 打开着，'
+                '关掉之后重试一次。',
+                detail=str(error))
+            self._update_status('插入失败')
+            return
+
+        failed = [r for r in results if not r['ok']]
+        added = sum(r['pages'] for r in results)
+        self.thumb_panel.refresh()
+        new_page = min(position, max(self.doc.page_count - 1, 0))
+        self._show_page(new_page)
+        self._update_title()
+        self._refresh_facts()
+
+        if failed:
+            names = '、'.join(os.path.basename(r['path']) for r in failed)
+            ErrorPanel.show(
+                self.root, '有 {} 个文件没插进去'.format(len(failed)),
+                '其余文件已经插好了。{} 没能转成页面 —— 如果它正被 WPS 或 '
+                'Word 打开着，关掉之后重试一次。'.format(names),
+                detail='\n'.join(r['error'] for r in failed))
+            self._update_status('已插入 {} 页，{} 个文件失败'.format(
+                added, len(failed)))
+            return
+
+        self._update_status('已插入 {} 页，共 {} 页'.format(
+            added, self.doc.page_count))
+        toast(self.root, '已插入 {} 页，共 {} 页'.format(
+            added, self.doc.page_count), 'ok')
 
     def _do_insert(self, filepath, position):
         if self._converting:

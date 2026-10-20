@@ -111,6 +111,9 @@ class PreviewPanel:
     def pack(self, **kwargs):
         self.frame.pack(**kwargs)
 
+    def pack_forget(self):
+        self.frame.pack_forget()
+
     def _popup_menu(self, event):
         self._context_menu.bind_page(self._last_page)
         self._context_menu.popup(event)

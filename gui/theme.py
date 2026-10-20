@@ -329,6 +329,12 @@ def _configure_styles(style):
     _set(style, 'Treeview', background=PAPER, fieldbackground=PAPER,
          foreground=INK, bordercolor=LINE, lightcolor=LINE, darkcolor=LINE,
          rowheight=26, font=font('body'))
+    _set(style, 'Paper.Treeview', background=PAPER, fieldbackground=PAPER,
+         foreground=INK, bordercolor=LINE, lightcolor=LINE, darkcolor=LINE,
+         rowheight=26, font=font('body'))
+    _set(style, 'Paper.Treeview.Heading', background=SURFACE,
+         foreground=INK_2, bordercolor=LINE, lightcolor=LINE, darkcolor=LINE,
+         relief='flat', font=font('meta', 'bold'))
     _set(style, 'Treeview.Heading', background=SURFACE, foreground=INK_2,
          bordercolor=LINE, lightcolor=LINE, darkcolor=LINE,
          relief='flat', font=font('meta', 'bold'))
