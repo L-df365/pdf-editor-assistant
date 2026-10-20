@@ -6,7 +6,7 @@ from tkinter import ttk
 
 from gui.feedback import Sheet
 from gui.widgets import FlatButton
-from gui.theme import INK, INK_2, INK_3, LINE, font
+from gui.theme import INK, INK_2, INK_3, LINE, PAPER, font
 
 
 class InsertSheet(Sheet):

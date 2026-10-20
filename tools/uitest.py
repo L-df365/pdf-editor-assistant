@@ -194,6 +194,43 @@ def run(app):
         sheet.destroy()
         pump(app, 0.2)
 
+    @step
+    def s8_sheet_footer():
+        """文件面板的底部按钮行必须完整落在窗口里（小屏会被切掉半截）。"""
+        from gui.file_sheet import FileSheet
+        sheet = FileSheet(app.root, mode='insert',
+                          current_path=app.doc.filepath,
+                          confirm_text='插入')
+        sheet._place(app.root)
+        pump(app, 0.3)
+        foot = sheet.button_frame
+        bottom = foot.winfo_rooty() + foot.winfo_height()
+        win_bottom = sheet.winfo_rooty() + sheet.winfo_height()
+        check('文件面板底部按钮没被切掉', bottom <= win_bottom,
+              '按钮底={} 窗口底={}'.format(bottom, win_bottom))
+        shot('08-文件面板底部')
+        sheet.destroy()
+        pump(app, 0.2)
+
+    @step
+    def s9_insert_position_sheet():
+        """插入位置面板：以前这里少导入一个颜色常量会直接崩。"""
+        from gui.insert_sheet import InsertSheet
+        sheet = InsertSheet(app.root, paths=['/tmp/pyw/many.pdf'],
+                            current_page=app.current_page,
+                            page_count=app.doc.page_count)
+        sheet._place(app.root)
+        pump(app, 0.3)
+        check('插入位置面板能打开', sheet.winfo_ismapped(), '打不开')
+        foot = sheet.button_frame
+        bottom = foot.winfo_rooty() + foot.winfo_height()
+        win_bottom = sheet.winfo_rooty() + sheet.winfo_height()
+        check('插入位置面板按钮完整', bottom <= win_bottom,
+              '按钮底={} 窗口底={}'.format(bottom, win_bottom))
+        shot('09-插入位置')
+        sheet.destroy()
+        pump(app, 0.2)
+
     def stepper():
         if not steps:
             print('\n===== 结果 =====')

@@ -115,7 +115,8 @@ class Sheet(tk.Toplevel):
         self._bg.bind('<Configure>', self._paint_card)
 
         frame = ttk.Frame(self, style='Paper.TFrame', padding=(22, 16))
-        frame.pack(padx=self.MARGIN, pady=self.MARGIN)
+        # fill=both：窗口被压矮时正文让位、底部按钮行保持完整
+        frame.pack(padx=self.MARGIN, pady=self.MARGIN, fill='both', expand=True)
         self._frame = frame
 
         header = ttk.Frame(frame, style='Paper.TFrame')
@@ -161,12 +162,20 @@ class Sheet(tk.Toplevel):
             width = self._frame.winfo_reqwidth() + self.MARGIN * 2
         if height <= 1:
             height = self._frame.winfo_reqheight() + self.MARGIN * 2
+        # 屏幕装不下就压高度：正文（列表）可以让步，按钮行必须留在屏幕上，
+        # 否则小屏上「取消/确定」会被切掉半截。
+        screen_w = self.winfo_screenwidth()
+        screen_h = self.winfo_screenheight()
+        width = min(width, screen_w - 16)
+        height = min(height, screen_h - 16)
         self.geometry('{}x{}'.format(width, height))
         self.update_idletasks()
         x = parent.winfo_rootx() + (parent.winfo_width() - width) // 2
         y = parent.winfo_rooty() + (parent.winfo_height() - height) // 3
         x = max(parent.winfo_rootx() + 8, min(x,
                 parent.winfo_rootx() + parent.winfo_width() - width - 8))
+        # 别让卡片下半截掉到屏幕外
+        y = max(8, min(y, screen_h - height - 8))
         self.geometry('+{}+{}'.format(x, y))
         self.deiconify()
         self.grab_set()

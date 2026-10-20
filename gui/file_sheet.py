@@ -104,7 +104,7 @@ class FileSheet(Sheet):
         self.tree.heading('size', text='大小', anchor='e',
                           command=lambda: self._sort_by('size'))
         self.tree.column('sel', width=26, stretch=False, anchor='center')
-        self.tree.column('name', width=200, stretch=False, anchor='w')
+        self.tree.column('name', width=220, stretch=True, anchor='w')
         self.tree.column('type', width=52, stretch=False, anchor='w')
         self.tree.column('mtime', width=84, stretch=False, anchor='w')
         self.tree.column('size', width=62, stretch=False, anchor='e')
@@ -119,26 +119,28 @@ class FileSheet(Sheet):
         middle.columnconfigure(0, weight=1)
         self.tree.bind('<Button-1>', self._on_click)
         self.tree.bind('<Double-1>', self._on_double)
+        # Treeview 默认不吃滚轮，列表长了只能拖滚动条
+        self.tree.bind('<MouseWheel>',
+                       lambda e: self.tree.yview_scroll(
+                           -1 if e.delta > 0 else 1, 'units'))
+        self.tree.bind('<Button-4>',
+                       lambda e: self.tree.yview_scroll(-1, 'units'))
+        self.tree.bind('<Button-5>',
+                       lambda e: self.tree.yview_scroll(1, 'units'))
+        self.loc_tree.bind('<MouseWheel>',
+                           lambda e: self.loc_tree.yview_scroll(
+                               -1 if e.delta > 0 else 1, 'units'))
 
-        # 右：预览
+        # 右：选中文件的详情（不做缩略图预览：插进来的多半是表格，
+        # 预览框既没信息量又把列表挤窄）
         right = ttk.Frame(body, style='Paper.TFrame')
-        right.grid(row=0, column=2, sticky='nse', padx=(12, 0))
-        ttk.Label(right, text='预览', style='Paper.TLabel', font=font('meta'),
+        right.grid(row=0, column=2, sticky='nse', padx=(14, 0))
+        ttk.Label(right, text='详情', style='Paper.TLabel', font=font('meta'),
                   foreground=INK_3).pack(anchor='w', pady=(0, 6))
-        # 预览区：有边框的纸面卡片，空态给明确提示
-        self.preview_frame = tk.Frame(right, bg=PAPER, width=196, height=250,
-                                      highlightbackground=LINE,
-                                      highlightthickness=1)
-        self.preview_frame.pack_propagate(False)
-        self.preview_frame.pack(anchor='w')
-        self.preview_label = tk.Label(self.preview_frame, text='还没有选中文件',
-                                      bg=PAPER, fg=INK_3, font=font('meta'),
-                                      justify='center')
-        self.preview_label.pack(expand=True, fill='both')
-        self.info_label = tk.Label(right, text='在左侧选一个文件\n这里会显示预览',
+        self.info_label = tk.Label(right, text='在左侧选一个文件\n这里会显示它的信息',
                                    bg=PAPER, fg=INK_2, font=font('meta'),
-                                   justify='left', width=20, anchor='w')
-        self.info_label.pack(anchor='w', pady=(10, 0))
+                                   justify='left', width=18, anchor='w')
+        self.info_label.pack(anchor='w')
 
     def _build_footer(self, confirm_text):
         """底部两行：第一行路径，第二行选择与操作。
@@ -321,12 +323,12 @@ class FileSheet(Sheet):
                 self.selected.add(item)
             self._sort_by(self._sort_key)
             self.tree.selection_set(item)
-            self._update_preview(item)
+            self._update_info(item)
             self._update_selection_label()
         else:
             self.selected = {item}
             self.tree.selection_set(item)
-            self._update_preview(item)
+            self._update_info(item)
             self._update_selection_label()
 
     def _on_double(self, event):
@@ -363,31 +365,14 @@ class FileSheet(Sheet):
                 self.selection_label.pack_forget()
         self.confirm_button.configure_state(bool(count))
 
-    def _update_preview(self, path):
+    def _update_info(self, path):
+        """右栏显示选中文件的信息（不渲染缩略图）。"""
         row = self._row(path)
         if row is None:
             return
-        if formats.ext_of(path) == '.pdf':
-            try:
-                import pymupdf
-                from PIL import Image, ImageTk
-                doc = pymupdf.open(path)
-                page = doc.load_page(0)
-                zoom = 150.0 / max(page.rect.width, 1)
-                pix = page.get_pixmap(
-                    matrix=pymupdf.Matrix(zoom, zoom), alpha=False)
-                img = Image.frombytes('RGB', [pix.width, pix.height],
-                                     pix.samples)
-                photo = ImageTk.PhotoImage(img)
-                doc.close()
-                self.preview_label.configure(image=photo, text='')
-                self.preview_label.image = photo
-            except Exception:
-                self.preview_label.configure(image='', text='无法预览')
-        else:
-            self.preview_label.configure(image='', text=row['type'])
         self.info_label.configure(
-            text='{}\n{}\n{}'.format(row['name'], row['mtime'], row['size']))
+            text='{}\n{}\n{}\n{}'.format(row['name'], row['type'],
+                                        row['mtime'], row['size']))
 
     # ------------------------------------------------------------------
     # 确认
@@ -419,7 +404,7 @@ class FileSheet(Sheet):
         self.selected = {path}
         self._sort_by(self._sort_key)
         self._update_selection_label()
-        self._update_preview(path)
+        self._update_info(path)
 
     def _confirm(self):
         paths = sorted(self.selected)
