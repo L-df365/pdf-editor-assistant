@@ -1,8 +1,9 @@
 import tkinter as tk
 from tkinter import ttk
 
-from gui.menu import PreviewMenu
-from gui.theme import ACCENT, INK_2, LINE, STAGE, SURFACE, font
+from gui.menu import MenuPopover, build
+from gui.theme import (ACCENT, INK_2, LINE, PAPER, STAGE, SURFACE,
+                        font)
 
 #: 缩放档位：(显示名, 取值)
 ZOOM_MODES = (
@@ -35,17 +36,19 @@ class PreviewPanel:
         self._build_action_row()
         self._build_canvas()
         self._build_counter_bar()
+        self.action_bar.place(relx=0, rely=0, x=14, y=14)
+        self.action_bar.lift()
 
     # ------------------------------------------------------------------
 
     def _build_action_row(self):
-        bar = ttk.Frame(self.frame, style='Surface.TFrame')
-        bar.pack(fill='x')
-        ttk.Separator(self.frame, orient='horizontal').pack(fill='x')
+        """页面级动作：浮在台面上的小工具条（不是第二条窗口栏）。"""
+        bar = tk.Frame(self.frame, bg=PAPER, highlightbackground=LINE,
+                       highlightthickness=1)
 
-        def action(text, command, style='Segment.TButton'):
+        def action(text, command, style='Paper.Segment.TButton'):
             ttk.Button(bar, text=text, style=style,
-                       command=command).pack(side='left', padx=2, pady=3)
+                       command=command).pack(side='left', padx=1, pady=1)
 
         if self.on_rotate:
             action('↺ 逆时针', lambda: self.on_rotate(-90))
@@ -54,7 +57,8 @@ class PreviewPanel:
             action('＋ 在此后插入', self.on_insert)
         if self.on_delete:
             action('⌫ 删除此页', self.on_delete,
-                   style='Surface.Danger.TButton')
+                   style='Paper.Danger.TButton')
+        self.action_bar = bar
 
 
     def _build_canvas(self):
@@ -80,9 +84,7 @@ class PreviewPanel:
                          lambda e: self.canvas.yview_scroll(-1, 'units'))
         self.canvas.bind('<Button-5>',
                          lambda e: self.canvas.yview_scroll(1, 'units'))
-        self._context_menu = PreviewMenu(
-            self.frame, on_zoom=self.set_zoom,
-            on_insert=self.on_insert, on_export=self.on_export)
+        self._context_menu = MenuPopover(self.frame, [])
         self.canvas.bind('<Button-3>',
                          lambda e: self._popup_menu(e))
         self.canvas.bind('<Configure>', self._on_canvas_resize)
@@ -115,8 +117,18 @@ class PreviewPanel:
         self.frame.pack_forget()
 
     def _popup_menu(self, event):
-        self._context_menu.bind_page(self._last_page)
-        self._context_menu.popup(event)
+        page = self._last_page
+        self._context_menu.set_items(build([
+            ('适应页面', lambda: self.set_zoom('fit'), 'Ctrl+0'),
+            ('实际大小 100%', lambda: self.set_zoom(1.0), 'Ctrl+1'),
+            ('放大 200%', lambda: self.set_zoom(2.0), 'Ctrl+2'),
+            None,
+            ('导出当前页为图片…', lambda: self._export(page)
+             if self.on_export else None),
+            ('在第 {} 页后插入文件…'.format(page + 1),
+             lambda: self.on_insert(page) if self.on_insert else None),
+        ]))
+        self._context_menu.show(event.x_root, event.y_root)
 
     # ------------------------------------------------------------------
 
@@ -182,7 +194,8 @@ class PreviewPanel:
 
         self.canvas.delete('all')
         x = max((self._canvas_width - pix.width) // 2, 12)
-        y = max((self._canvas_height - pix.height) // 2, 12)
+        # 顶部留出浮动工具条的位置，页面不会被压住
+        y = max((self._canvas_height - pix.height) // 2, 58)
 
         for offset, tone in enumerate(reversed(SHADOW_TONES), start=1):
             self.canvas.create_rectangle(

@@ -21,6 +21,7 @@ from gui.theme import (ACCENT, ACCENT_TINT, INK, INK_2, INK_3, LINE, PAPER,
                         SURFACE, font)
 
 HOME = os.path.expanduser('~')
+RECENT = '__recent__'
 
 
 def _human_size(size):
@@ -134,7 +135,7 @@ class FileSheet(Sheet):
 
     def _build_footer(self, confirm_text):
         foot = self.button_frame
-        ttk.Button(foot, text='浏览全部文件…', style='Paper.Ghost.TButton',
+        ttk.Button(foot, text='浏览全部文件…', style='Paper.Secondary.TButton',
                    command=self._browse).pack(side='left')
 
         entry = ttk.Entry(foot, width=34, font=font('body'))
@@ -144,15 +145,17 @@ class FileSheet(Sheet):
         entry.bind('<Return>', lambda e: self._confirm_entry())
         entry.bind('<FocusOut>', lambda e: self._sync_entry())
 
-        self.confirm_button = ttk.Button(foot, text=confirm_text,
-                                         style='Primary.TButton',
-                                         command=self._confirm)
+        self.confirm_button = ttk.Button(
+            foot, text=confirm_text, style='Paper.Primary.TButton',
+            command=self._confirm, state='disabled')
         self.confirm_button.pack(side='right')
         ttk.Button(foot, text='取消', style='Paper.Ghost.TButton',
                    command=self._cancel).pack(side='right', padx=(0, 8))
-        self.selection_label = ttk.Label(foot, text='', style='Paper.TLabel',
-                                          font=font('meta'), foreground=INK_2)
+        self.selection_label = tk.Label(
+            foot, text='', bg=ACCENT_TINT, fg=ACCENT, font=font('meta'),
+            padx=10, pady=4)
         self.selection_label.pack(side='right', padx=(0, 12))
+        self.selection_label.pack_forget()
         if self.multi:
             ttk.Button(foot, text='全选', style='Paper.Ghost.TButton',
                        command=self._select_all).pack(side='left',
@@ -163,13 +166,12 @@ class FileSheet(Sheet):
     # ------------------------------------------------------------------
 
     def _locations(self):
+        """常用位置：当前文档所在文件夹固定在最上面。"""
         places = []
         if self.current_path:
             folder = os.path.dirname(os.path.abspath(self.current_path))
             places.append(('当前文档所在文件夹', folder))
-        for path in load_recent():
-            places.append(('最近：' + os.path.basename(path),
-                           os.path.dirname(os.path.abspath(path))))
+        places.append(('最近使用', RECENT))
         for label, path in (('桌面', os.path.join(HOME, 'Desktop')),
                             ('下载', os.path.join(HOME, 'Downloads')),
                             ('主目录', HOME)):
@@ -187,11 +189,36 @@ class FileSheet(Sheet):
         if not selection:
             return
         path = self.loc_tree.item(selection[0], 'values')[0]
-        self._load_directory(path)
+        if path == RECENT:
+            self._load_recent()
+        else:
+            self._load_directory(path)
 
     # ------------------------------------------------------------------
     # 文件列表
     # ------------------------------------------------------------------
+
+    def _load_recent(self):
+        """最近使用：把最近打开过的文件列在中间。"""
+        self.directory = RECENT
+        self.tree.delete(*self.tree.get_children())
+        self.rows = []
+        for full in load_recent():
+            if not os.path.isfile(full):
+                continue
+            try:
+                stat = os.stat(full)
+            except OSError:
+                continue
+            self.rows.append({
+                'path': full, 'name': os.path.basename(full),
+                'type': formats.badge_of(full),
+                'mtime': _human_time(stat.st_mtime),
+                'size': _human_size(stat.st_size),
+                'dir': False, 'mtime_raw': stat.st_mtime,
+                'size_raw': stat.st_size})
+        self._sort_by('mtime')
+        self._update_selection_label()
 
     def _allowed(self, path):
         ext = formats.ext_of(path)
@@ -284,6 +311,7 @@ class FileSheet(Sheet):
             self.selected = {item}
             self.tree.selection_set(item)
             self._update_preview(item)
+            self._update_selection_label()
 
     def _on_double(self, event):
         item = self.tree.identify_row(event.y)
@@ -311,8 +339,14 @@ class FileSheet(Sheet):
         if count and self.multi:
             self.selection_label.configure(
                 text='已选 {} 个文件'.format(count))
+            if not self.selection_label.winfo_ismapped():
+                self.selection_label.pack(side='right', padx=(0, 12))
         else:
             self.selection_label.configure(text='')
+            if self.selection_label.winfo_ismapped():
+                self.selection_label.pack_forget()
+        self.confirm_button.configure(
+            state='normal' if count else 'disabled')
 
     def _update_preview(self, path):
         row = self._row(path)

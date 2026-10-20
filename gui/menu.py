@@ -1,132 +1,252 @@
-"""菜单语法：所有菜单面（标题栏菜单、右键菜单、溢出菜单）共用。
+"""自绘菜单浮层。
 
-规则见 docs/design-system.md §3.3：
-1. 分组 ≤ 3 组、每组 ≤ 4 项
-2. 文案动词开头、带上下文时写明对象
-3. 危险动作最后一条、独立成组、危险色
-4. 快捷键右对齐
-5. 禁用而非隐藏
+Tk 的 `tk.Menu` 只能改颜色：没有圆角、阴影、图标、分区，做出来和系统菜单
+没什么区别。这里用 Canvas 自己画一个浮层，所有菜单面（顶栏的「⋯」、页面轨
+右键、预览区右键）共用它。
 """
 
 import tkinter as tk
 
-from gui.theme import DANGER, apply_menu_style
+from gui.theme import (ACCENT, ACCENT_TINT, DANGER, INK, INK_2, INK_3, LINE,
+                        LINE_SOFT, PAPER, font)
+
+ROW_HEIGHT = 30
+PADDING_X = 12
+ICON_X = 14
+LABEL_X = 40
+CORNER = 6
+SHADOW_TONES = ('#C6CECC', '#D0D7D5', '#D8DEDC')
+DANGER_TINT = '#F8E7E3'
 
 
-def style_menu(menu):
-    return apply_menu_style(menu)
+def _rounded(canvas, x0, y0, x1, y1, r, **kwargs):
+    points = [
+        x0 + r, y0, x1 - r, y0, x1, y0,
+        x1, y0 + r, x1, y1 - r, x1, y1,
+        x1 - r, y1, x0 + r, y1, x0, y1,
+        x0, y1 - r, x0, y0 + r, x0, y0,
+    ]
+    return canvas.create_polygon(points, smooth=True, splinesteps=16,
+                                  **kwargs)
 
 
-def add_item(menu, label, command=None, accelerator=None, danger=False,
-             enabled=True, checked=False):
-    """添加一个菜单项，返回其索引。"""
-    menu.add_command(
-        label=label,
-        command=command,
-        accelerator=accelerator or '',
-        state='normal' if enabled else 'disabled')
-    index = menu.index('end')
-    if danger:
-        menu.entryconfigure(index, foreground=DANGER)
-    if checked:
-        menu.entryconfigure(index, foreground=DANGER)
-    return index
+class MenuItem:
+    """一条菜单项。"""
+
+    def __init__(self, label, command=None, accelerator='', icon='',
+                 danger=False, enabled=True, checked=False, kind='item'):
+        self.label = label
+        self.command = command
+        self.accelerator = accelerator
+        self.icon = icon
+        self.danger = danger
+        self.enabled = enabled
+        self.checked = checked
+        self.kind = kind
 
 
-def add_group(menu):
-    menu.add_separator()
+class MenuPopover:
+    """浮层菜单：纸白底、1px 细线、柔和阴影、图标、快捷键提示。"""
 
-
-class ContextMenu:
-    """单实例右键菜单：构建一次，打开时刷新文案。
-
-    每次右键都新建 tk.Menu 会造成实例泄漏，也让样式难以统一。
-    """
-
-    def __init__(self, parent, on_insert=None, on_rotate=None,
-                 on_delete=None, on_zoom=None, on_export=None):
+    def __init__(self, parent, items, on_close=None):
         self.parent = parent
-        self.on_insert = on_insert
-        self.on_rotate = on_rotate
-        self.on_delete = on_delete
-        self.on_zoom = on_zoom
-        self.on_export = on_export
-        self.page_num = 0
-        self.menu = style_menu(tk.Menu(parent, tearoff=0))
+        self.items = items
+        self.on_close = on_close
+        self.active = -1
+        self._win = None
+        self._canvas = None
+        self._rows = []
+
+    # -- 显示 ----------------------------------------------------------
+
+    def set_items(self, items):
+        self.items = items
+        if self._win is not None:
+            self.hide()
+
+    def show(self, x, y):
         self._build()
+        self._win.update_idletasks()
+        width = self._win.winfo_reqwidth()
+        height = self._win.winfo_reqheight()
+        screen_w = self._win.winfo_screenwidth()
+        screen_h = self._win.winfo_screenheight()
+        if x + width > screen_w - 8:
+            x = max(8, x - width)
+        if y + height > screen_h - 8:
+            y = max(8, y - height)
+        self._win.geometry('+{}+{}'.format(x, y))
+        self._win.deiconify()
+        self._win.grab_set()
+        self._win.focus_set()
+
+    def hide(self):
+        if self._win is not None:
+            try:
+                self._win.grab_release()
+            except tk.TclError:
+                pass
+            self._win.destroy()
+        self._win = None
+        if self.on_close:
+            self.on_close()
 
     def _build(self):
-        menu = self.menu
-        menu.delete(0, 'end')
-        add_item(menu, '在第 1 页后插入文件…', command=self._insert)
-        add_group(menu)
-        add_item(menu, '逆时针旋转 90°', command=lambda: self._rotate(-90))
-        add_item(menu, '顺时针旋转 90°', command=lambda: self._rotate(90))
-        add_group(menu)
-        add_item(menu, '删除第 1 页', command=self._delete, danger=True)
+        self._win = tk.Toplevel(self.parent)
+        self._win.overrideredirect(True)
+        self._win.withdraw()
+        try:
+            self._win.attributes('-topmost', True)
+        except tk.TclError:
+            pass
+        self._canvas = tk.Canvas(self._win, highlightthickness=0, bg=PAPER)
+        self._canvas.pack(fill='both', expand=True)
 
-    def bind_page(self, page_num):
-        self.page_num = page_num
-        self.menu.entryconfigure(
-            0, label='在第 {} 页后插入文件…'.format(page_num + 1))
-        self.menu.entryconfigure(
-            self.menu.index('end'), label='删除第 {} 页'.format(page_num + 1))
+        rows = []
+        for item in self.items:
+            if item.kind == 'separator':
+                rows.append(('separator', item, 9))
+            elif item.kind == 'label':
+                rows.append(('label', item, 24))
+            else:
+                rows.append(('item', item, ROW_HEIGHT))
+        total = sum(size for _, _, size in rows)
+        width = 236
 
-    def popup(self, event):
-        self.menu.tk_popup(event.x_root, event.y_root)
-        self.menu.bind('<FocusOut>', lambda e: self.menu.unpost())
+        for offset, tone in enumerate(reversed(SHADOW_TONES), start=1):
+            _rounded(self._canvas, offset, offset, width + offset,
+                     total + offset, CORNER, fill=tone, outline='')
 
-    # -- 动作 ----------------------------------------------------------
+        _rounded(self._canvas, 0, 0, width, total, CORNER, fill=PAPER,
+                 outline=LINE, width=1)
 
-    def _insert(self):
-        if self.on_insert:
-            self.on_insert(self.page_num)
+        has_icon = any(getattr(item, 'icon', '') for item in self.items)
+        self._label_x = LABEL_X if has_icon else PADDING_X + 2
 
-    def _rotate(self, angle):
-        if self.on_rotate:
-            self.on_rotate(self.page_num, angle)
+        y = 0
+        self._rows = []
+        for kind, item, size in rows:
+            if kind == 'separator':
+                self._canvas.create_line(PADDING_X, y + 4, width - PADDING_X,
+                                         y + 4, fill=LINE)
+            elif kind == 'label':
+                self._canvas.create_text(
+                    PADDING_X, y + size / 2, text=item.label, anchor='w',
+                    fill=INK_3, font=font('meta'))
+            else:
+                self._draw_item(item, y, width, size)
+                self._rows.append((item, y, size))
+            y += size
 
-    def _delete(self):
-        if self.on_delete:
-            self.on_delete(self.page_num)
+        # 明确画布尺寸：否则浮层窗口会比菜单大一圈，露出白底
+        self._canvas.configure(width=width + 4, height=total + 4)
+        self._win.update_idletasks()
+        self._win.geometry('{}x{}'.format(width + 4, total + 4))
+
+        self._canvas.bind('<Motion>', self._on_motion)
+        self._canvas.bind('<Button-1>', self._on_click)
+        self._canvas.bind('<Button-3>', lambda e: self.hide())
+        self._win.bind('<Escape>', lambda e: self.hide())
+        self._win.bind('<Key>', self._on_key)
+
+    def _draw_item(self, item, y, width, size):
+        color = DANGER if item.danger else INK
+        if not item.enabled:
+            color = INK_3
+        if item.icon:
+            self._canvas.create_text(
+                ICON_X, y + size / 2, text=item.icon, anchor='w',
+                fill=ACCENT if item.checked else (INK_3 if not item.enabled
+                                                 else INK_2),
+                font=font('body'))
+        self._canvas.create_text(
+            self._label_x, y + size / 2, text=item.label, anchor='w',
+            fill=color, font=font('body'))
+        if item.accelerator:
+            self._canvas.create_text(
+                width - PADDING_X, y + size / 2, text=item.accelerator,
+                anchor='e', fill=INK_3, font=font('num'))
+
+    # -- 交互 ----------------------------------------------------------
+
+    def _row_at(self, y):
+        for index, (item, top, size) in enumerate(self._rows):
+            if top <= y < top + size:
+                return index
+        return -1
+
+    def _on_motion(self, event):
+        index = self._row_at(event.y)
+        if index == self.active:
+            return
+        self.active = index
+        self._canvas.delete('hover')
+        if index < 0:
+            return
+        item, top, size = self._rows[index]
+        if not item.enabled:
+            self.active = -1
+            return
+        tint = DANGER_TINT if item.danger else ACCENT_TINT
+        _rounded(self._canvas, 3, top + 1, self._canvas.winfo_width() - 3,
+                 top + size - 1, 4, fill=tint, outline='', tags='hover')
+
+    def _on_click(self, event):
+        index = self._row_at(event.y)
+        if index < 0:
+            self.hide()
+            return
+        item = self._rows[index][0]
+        if not item.enabled:
+            return
+        command = item.command
+        self.hide()
+        if command:
+            command()
+
+    def _on_key(self, event):
+        if not self._rows:
+            return
+        if event.keysym == 'Down':
+            self.active = min(self.active + 1, len(self._rows) - 1)
+        elif event.keysym == 'Up':
+            self.active = max(self.active - 1, 0)
+        elif event.keysym == 'Return':
+            if 0 <= self.active < len(self._rows):
+                item = self._rows[self.active][0]
+                if item.enabled and item.command:
+                    command = item.command
+                    self.hide()
+                    command()
+            return
+        else:
+            return
+        self._highlight_active()
+
+    def _highlight_active(self):
+        self._canvas.delete('hover')
+        if not (0 <= self.active < len(self._rows)):
+            return
+        item, top, size = self._rows[self.active]
+        if not item.enabled:
+            return
+        tint = DANGER_TINT if item.danger else ACCENT_TINT
+        _rounded(self._canvas, 3, top + 1, self._canvas.winfo_width() - 3,
+                 top + size - 1, 4, fill=tint, outline='', tags='hover')
 
 
-class PreviewMenu:
-    """预览区右键菜单：只看不动的一组命令。"""
-
-    def __init__(self, parent, on_zoom=None, on_insert=None,
-                 on_export=None):
-        self.parent = parent
-        self.on_zoom = on_zoom
-        self.on_insert = on_insert
-        self.on_export = on_export
-        self.page_num = 0
-        self.menu = style_menu(tk.Menu(parent, tearoff=0))
-        add_item(self.menu, '适应页面', command=lambda: self._zoom('fit'))
-        add_item(self.menu, '实际大小 100%', command=lambda: self._zoom(1.0))
-        add_item(self.menu, '放大 200%', command=lambda: self._zoom(2.0))
-        add_group(self.menu)
-        add_item(self.menu, '导出当前页为图片…', command=self._export)
-        add_item(self.menu, '在第 1 页后插入文件…', command=self._insert)
-
-    def bind_page(self, page_num):
-        self.page_num = page_num
-        self.menu.entryconfigure(
-            self.menu.index('end'),
-            label='在第 {} 页后插入文件…'.format(page_num + 1))
-
-    def popup(self, event):
-        self.menu.tk_popup(event.x_root, event.y_root)
-        self.menu.bind('<FocusOut>', lambda e: self.menu.unpost())
-
-    def _zoom(self, mode):
-        if self.on_zoom:
-            self.on_zoom(mode)
-
-    def _insert(self):
-        if self.on_insert:
-            self.on_insert(self.page_num)
-
-    def _export(self):
-        if self.on_export:
-            self.on_export(self.page_num)
+def build(items):
+    """items: [(label, command, accelerator, icon, danger, enabled), ...]"""
+    result = []
+    for entry in items:
+        if entry is None:
+            result.append(MenuItem('', kind='separator'))
+            continue
+        label, command = entry[0], entry[1]
+        accelerator = entry[2] if len(entry) > 2 else ''
+        icon = entry[3] if len(entry) > 3 else ''
+        danger = entry[4] if len(entry) > 4 else False
+        enabled = entry[5] if len(entry) > 5 else True
+        result.append(MenuItem(label, command, accelerator, icon, danger,
+                               enabled))
+    return result

@@ -5,6 +5,91 @@ from .converter import DocumentConverter
 from .formats import IMAGE_EXTS
 
 
+class ChangeHistory:
+    """基于快照的撤销/重做。
+
+    页面级操作（插入/删除/移动/旋转）在 PDF 里没有稳定的逆操作，
+    统一用「操作前后各存一份快照」实现，代价是每次改动写一次临时文件。
+    """
+
+    def __init__(self, limit=5, temp_dir=None):
+        self.limit = limit
+        self.temp_dir = temp_dir or tempfile.mkdtemp(prefix='pdf_hist_')
+        self._states = []
+        self._index = -1
+        self._serial = 0
+
+    def reset(self):
+        self._clear_files()
+        self._states = []
+        self._index = -1
+
+    def _clear_files(self):
+        for path in self._states:
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+
+    def _write(self, doc):
+        self._serial += 1
+        path = os.path.join(self.temp_dir, 'state-{}.pdf'.format(self._serial))
+        doc.save(path)
+        return path
+
+    def capture(self, doc):
+        """记录当前状态（打开文档或首次操作时调用）。"""
+        if self._index < 0:
+            self._states = [self._write(doc)]
+            self._index = 0
+
+    def commit(self, doc):
+        """提交一次改动，成为新的可回退状态。"""
+        self.capture(doc)
+        del self._states[self._index + 1:]
+        self._states.append(self._write(doc))
+        self._index = len(self._states) - 1
+        while len(self._states) > self.limit + 1:
+            stale = self._states.pop(0)
+            try:
+                os.remove(stale)
+            except OSError:
+                pass
+            self._index -= 1
+
+    @property
+    def can_undo(self):
+        return self._index > 0
+
+    @property
+    def can_redo(self):
+        return 0 <= self._index < len(self._states) - 1
+
+    @property
+    def undo_steps(self):
+        return max(self._index, 0)
+
+    @property
+    def redo_steps(self):
+        return max(len(self._states) - 1 - self._index, 0)
+
+    def _restore(self, doc, path):
+        doc.close()
+        return pymupdf.open(path)
+
+    def undo(self, doc):
+        if not self.can_undo:
+            return None
+        self._index -= 1
+        return self._restore(doc, self._states[self._index])
+
+    def redo(self, doc):
+        if not self.can_redo:
+            return None
+        self._index += 1
+        return self._restore(doc, self._states[self._index])
+
+
 class PDFDocument:
     """PDF 文档操作封装。"""
 
@@ -14,6 +99,7 @@ class PDFDocument:
         self.converter = DocumentConverter()
         self._temp_dir = tempfile.mkdtemp(prefix='pdf_edit_')
         self._modified = False
+        self.history = ChangeHistory(limit=5, temp_dir=self._temp_dir)
 
     @property
     def page_count(self):
@@ -29,6 +115,8 @@ class PDFDocument:
         self.doc = pymupdf.open(filepath)
         self.filepath = filepath
         self._modified = False
+        self.history.reset()
+        self.history.capture(self.doc)
 
     def close(self):
         if self.doc:
@@ -63,7 +151,7 @@ class PDFDocument:
         for filepath in filepaths:
             before = self.page_count
             try:
-                self.insert_file(filepath, offset)
+                self.insert_file(filepath, offset, record=False)
             except Exception as exc:
                 results.append({
                     'path': filepath,
@@ -80,9 +168,10 @@ class PDFDocument:
                 'error': '',
                 'pages': added,
             })
+        self.commit_change()
         return results
 
-    def insert_file(self, filepath, position):
+    def insert_file(self, filepath, position, record=True):
         ext = os.path.splitext(filepath)[1].lower()
 
         if ext == '.pdf':
@@ -99,7 +188,8 @@ class PDFDocument:
             self.doc.insert_pdf(src_doc, start_at=position)
             src_doc.close()
 
-        self._modified = True
+        if record:
+            self.commit_change()
 
     def _insert_image(self, image_path, position):
         from PIL import Image
@@ -126,6 +216,33 @@ class PDFDocument:
         self.doc.insert_pdf(new_doc, start_at=position)
         new_doc.close()
 
+    def commit_change(self):
+        """把当前状态记入撤销历史。"""
+        if not self.doc:
+            return
+        self.history.commit(self.doc)
+        self._modified = True
+
+    def undo(self):
+        if not self.doc:
+            return False
+        restored = self.history.undo(self.doc)
+        if restored is None:
+            return False
+        self.doc = restored
+        self._modified = True
+        return True
+
+    def redo(self):
+        if not self.doc:
+            return False
+        restored = self.history.redo(self.doc)
+        if restored is None:
+            return False
+        self.doc = restored
+        self._modified = True
+        return True
+
     def delete_page(self, page_num):
         if self.page_count <= 1:
             return
@@ -133,7 +250,7 @@ class PDFDocument:
             i for i in range(self.page_count) if i != page_num
         ]
         self.doc.select(new_order)
-        self._modified = True
+        self.commit_change()
 
     def move_page(self, from_pos, to_pos):
         if from_pos == to_pos:
@@ -142,13 +259,13 @@ class PDFDocument:
         page = pages.pop(from_pos)
         pages.insert(to_pos, page)
         self.doc.select(pages)
-        self._modified = True
+        self.commit_change()
 
     def rotate_page(self, page_num, angle=90):
         page = self.doc.load_page(page_num)
         current = page.rotation
         page.set_rotation((current + angle) % 360)
-        self._modified = True
+        self.commit_change()
 
     def save(self, filepath=None):
         import shutil

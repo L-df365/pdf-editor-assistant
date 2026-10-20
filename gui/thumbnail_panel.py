@@ -1,7 +1,7 @@
 import tkinter as tk
 from tkinter import ttk
 
-from gui.menu import ContextMenu
+from gui.menu import MenuPopover, build
 from gui.theme import (ACCENT, ACCENT_TINT, INK_2, LINE, MARKER, PAPER,
                         SURFACE, font)
 
@@ -55,14 +55,18 @@ class ThumbnailPanel:
         self.canvas.pack(side='left', fill='both', expand=True)
         self.scrollbar.pack(side='right', fill='y')
 
-        self._context_menu = ContextMenu(
-            self.frame,
-            on_insert=lambda page: self._do_insert_after(page),
-            on_rotate=lambda page, angle: self._do_rotate(page, angle),
-            on_delete=lambda page: self._do_delete(page))
+        self._context_menu = MenuPopover(self.frame, [])
 
         self.canvas.bind('<Configure>', self._on_canvas_resize)
         self.canvas.bind('<Button-1>', self._on_canvas_click)
+        self.canvas.bind('<Button-4>',
+                         lambda e: self.canvas.yview_scroll(-1, 'units'))
+        self.canvas.bind('<Button-5>',
+                         lambda e: self.canvas.yview_scroll(1, 'units'))
+        self.canvas.bind('<Prior>', lambda e: self.canvas.yview_scroll(
+            -1, 'pages'))
+        self.canvas.bind('<Next>', lambda e: self.canvas.yview_scroll(
+            1, 'pages'))
         self.canvas.bind('<Up>', lambda e: self._move_selection(-1))
         self.canvas.bind('<Down>', lambda e: self._move_selection(1))
         self.canvas.focus_set()
@@ -79,11 +83,13 @@ class ThumbnailPanel:
         self._sync_scrollbar()
 
     def _sync_scrollbar(self):
+        """内容超出时显示滚动条；滚轮在卡片上也能滚。"""
         needed = self.inner.winfo_reqheight() > self.canvas.winfo_height() + 4
         if needed and not self.scrollbar.winfo_ismapped():
             self.scrollbar.pack(side='right', fill='y')
         elif not needed and self.scrollbar.winfo_ismapped():
             self.scrollbar.pack_forget()
+        self.canvas.configure(yscrollcommand=self.scrollbar.set)
 
     def _on_canvas_resize(self, event):
         self._schedule_relayout()
@@ -197,6 +203,10 @@ class ThumbnailPanel:
         self.cards.append(card)
 
         for widget in (image, index):
+            widget.bind('<Button-4>',
+                        lambda e: self.canvas.yview_scroll(-1, 'units'))
+            widget.bind('<Button-5>',
+                        lambda e: self.canvas.yview_scroll(1, 'units'))
             widget.bind('<ButtonPress-1>',
                         lambda e, p=page_num: self._on_press(e, p))
             widget.bind('<B1-Motion>',
@@ -353,8 +363,17 @@ class ThumbnailPanel:
     # ------------------------------------------------------------------
 
     def _show_menu(self, event, page_num):
-        self._context_menu.bind_page(page_num)
-        self._context_menu.popup(event)
+        self._context_menu.set_items(build([
+            ('在第 {} 页后插入文件…'.format(page_num + 1),
+             lambda: self._do_insert_after(page_num)),
+            None,
+            ('逆时针旋转 90°', lambda: self._do_rotate(page_num, -90)),
+            ('顺时针旋转 90°', lambda: self._do_rotate(page_num, 90)),
+            None,
+            ('删除第 {} 页'.format(page_num + 1),
+             lambda: self._do_delete(page_num), '', '', True),
+        ]))
+        self._context_menu.show(event.x_root, event.y_root)
 
     def _do_insert_after(self, page_num):
         if self.on_insert_after:

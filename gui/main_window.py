@@ -16,8 +16,8 @@ from gui.feedback import ConfirmPanel, ErrorPanel, InfoPanel, toast
 from gui.empty_state import EmptyState
 from gui.file_sheet import FileSheet
 from gui.insert_sheet import InsertSheet
-from gui.menu import ContextMenu, PreviewMenu, add_group, add_item, style_menu
-from gui.theme import (ACCENT, INK_2, INK_3, MARKER, OK, SURFACE,
+from gui.menu import MenuPopover, build
+from gui.theme import (ACCENT, INK, INK_2, INK_3, MARKER, OK, SURFACE,
                         font, init_theme)
 from gui.thumbnail_panel import ThumbnailPanel
 from gui.preview_panel import PreviewPanel
@@ -69,8 +69,7 @@ class MainWindow:
             value=self.doc.converter.requested_name)
         self.root.protocol('WM_DELETE_WINDOW', self._on_close)
 
-        self._build_menu()
-        self._build_document_row()
+        self._build_topbar()
         self._build_main_area()
         self._build_statusbar()
         self._bind_shortcuts()
@@ -78,72 +77,87 @@ class MainWindow:
         self.root.after(250, self._check_backends_on_startup)
         self.root.after(120, self._poll_tasks)
 
-    def _build_menu(self):
-        menubar = style_menu(tk.Menu(self.root))
-        menubar.configure(tearoff=0)
+    def _build_topbar(self):
+        """单条顶栏：左边是文档身份，右边是常用动作。"""
+        bar = ttk.Frame(self.root, style='Surface.TFrame')
+        bar.pack(fill='x')
+        ttk.Separator(self.root, orient='horizontal').pack(fill='x')
 
-        file_menu = tk.Menu(menubar, tearoff=0)
-        add_item(file_menu, '打开 PDF…', self.open_pdf, 'Ctrl+O')
-        add_item(file_menu, '打开最近文件…', self._open_recent, 'Ctrl+Shift+O',
-                 enabled=bool(self._recent_files()))
-        add_group(file_menu)
-        add_item(file_menu, '保存', self.save_pdf, 'Ctrl+S')
-        add_item(file_menu, '另存为…', self.save_as, 'Ctrl+Shift+S')
-        add_group(file_menu)
-        add_item(file_menu, '页面信息…', self._show_page_info, 'Ctrl+Shift+I')
-        add_group(file_menu)
-        add_item(file_menu, '退出', self._on_close, 'Ctrl+Q')
-        menubar.add_cascade(label='文件', menu=file_menu)
+        self._doc_name = ttk.Label(
+            bar, text='未打开文档', style='Surface.TLabel',
+            font=font('h1', 'bold'), foreground=INK_2)
+        self._doc_name.pack(side='left', padx=(16, 8), pady=9)
 
-        edit_menu = tk.Menu(menubar, tearoff=0)
-        add_item(edit_menu, '在当前页后插入文件…', self.insert_file_dialog,
-                 'Ctrl+I')
-        add_group(edit_menu)
-        add_item(edit_menu, '逆时针旋转 90°',
-                 lambda: self.rotate_page(-90), 'Ctrl+Shift+R')
-        add_item(edit_menu, '顺时针旋转 90°',
-                 lambda: self.rotate_page(90), 'Ctrl+R')
-        add_group(edit_menu)
-        add_item(edit_menu, '删除当前页', self.delete_current_page, 'Delete')
-        add_group(edit_menu)
-        add_item(edit_menu, '移到开头',
-                 lambda: self._move_current_page(0), 'Ctrl+Shift+Up')
-        add_item(edit_menu, '移到结尾',
-                 lambda: self._move_current_page(-1), 'Ctrl+Shift+Down')
-        menubar.add_cascade(label='编辑', menu=edit_menu)
+        self._dirty_dot = tk.Canvas(bar, width=10, height=10,
+                                    highlightthickness=0, bg=SURFACE)
+        self._dirty_dot.pack(side='left')
 
-        view_menu = tk.Menu(menubar, tearoff=0)
-        add_item(view_menu, '适应页面', lambda: self.preview.set_zoom('fit'),
-                 'Ctrl+0')
-        add_item(view_menu, '实际大小 100%',
-                 lambda: self.preview.set_zoom(1.0), 'Ctrl+1')
-        add_item(view_menu, '放大 200%', lambda: self.preview.set_zoom(2.0),
-                 'Ctrl+2')
-        menubar.add_cascade(label='视图', menu=view_menu)
+        ttk.Button(bar, text='⋯', style='Surface.Ghost.TButton',
+                   command=self._show_more_menu).pack(
+                       side='right', padx=(2, 12), pady=6)
+        self._save_button = ttk.Button(
+            bar, text='保存', style='Primary.TButton', command=self.save_pdf,
+            state='disabled')
+        self._save_button.pack(side='right', padx=(0, 2), pady=6)
+        self._redo_button = ttk.Button(
+            bar, text='重做', style='Surface.Secondary.TButton',
+            command=self.redo, state='disabled')
+        self._redo_button.pack(side='right', padx=(0, 2), pady=6)
+        self._undo_button = ttk.Button(
+            bar, text='撤销', style='Surface.Secondary.TButton',
+            command=self.undo, state='disabled')
+        self._undo_button.pack(side='right', padx=(0, 2), pady=6)
+        self._insert_button = ttk.Button(
+            bar, text='插入', style='Surface.Secondary.TButton',
+            command=self.insert_file_dialog, state='disabled')
+        self._insert_button.pack(side='right', padx=(0, 2), pady=6)
+        ttk.Button(bar, text='打开', style='Surface.Secondary.TButton',
+                   command=self.open_pdf).pack(side='right', padx=(0, 6),
+                                               pady=6)
 
-        settings_menu = tk.Menu(menubar, tearoff=0)
-        add_item(settings_menu, '转换后端…', self._open_backend_dialog, 'Ctrl+,')
-        menubar.add_cascade(label='设置', menu=settings_menu)
+    def _paint_dirty(self):
+        self._dirty_dot.delete('all')
+        if self.doc.is_modified:
+            self._dirty_dot.create_oval(1, 1, 9, 9, fill=MARKER, outline='')
 
-        help_menu = tk.Menu(menubar, tearoff=0)
-        add_item(help_menu, '快捷键', self._show_shortcuts, 'Ctrl+/')
-        add_item(help_menu, '关于本应用', self._show_about)
-        menubar.add_cascade(label='帮助', menu=help_menu)
+    def _open_backend_dialog(self):
+        dialog = BackendDialog(
+            self.root,
+            self.doc.converter.backend_status(),
+            self.doc.converter.requested_name,
+            on_select=self._apply_backend,
+            on_install=self._prompt_install_backend)
+        dialog.wait_window()
 
-        self.root.config(menu=menubar)
-        self._menus = {'file': file_menu, 'edit': edit_menu, 'view': view_menu}
+    def _show_more_menu(self):
+        items = build([
+            ('适应页面', lambda: self.preview.set_zoom('fit'), 'Ctrl+0'),
+            ('实际大小 100%', lambda: self.preview.set_zoom(1.0), 'Ctrl+1'),
+            ('放大 200%', lambda: self.preview.set_zoom(2.0), 'Ctrl+2'),
+            None,
+            ('页面信息…', self._show_page_info, 'Ctrl+Shift+I'),
+            ('重新载入文件', self._reload_document),
+            None,
+            ('转换后端…', self._open_backend_dialog, 'Ctrl+,'),
+            None,
+            ('快捷键', self._show_shortcuts, 'Ctrl+/'),
+            ('关于本应用', self._show_about),
+        ])
+        self._more_menu = MenuPopover(self.root, items)
+        self._more_menu.show(
+            self.root.winfo_pointerx(),
+            self.root.winfo_pointery() + 18)
 
     def _open_recent(self):
         items = self._recent_files()
         if not items:
             return
-        menu = style_menu(tk.Menu(self.root, tearoff=0))
-        for path in items:
-            add_item(menu, os.path.basename(path),
-                     lambda p=path: self.open_file(p))
-        menu.tk_popup(self.root.winfo_pointerx(),
-                      self.root.winfo_pointery())
-        menu.bind('<FocusOut>', lambda e: menu.unpost())
+        self._more_menu = MenuPopover(
+            self.root, build([(os.path.basename(p),
+                               lambda path=p: self.open_file(path))
+                              for p in items]))
+        self._more_menu.show(self.root.winfo_pointerx(),
+                              self.root.winfo_pointery() + 18)
 
     def _recent_files(self):
         return []
@@ -154,6 +168,7 @@ class MainWindow:
             [('打开 PDF', 'Ctrl+O'),
              ('保存 / 另存为', 'Ctrl+S / Ctrl+Shift+S'),
              ('插入文件', 'Ctrl+I'),
+             ('撤销 / 重做', 'Ctrl+Z / Ctrl+Shift+Z'),
              ('顺时针 / 逆时针旋转', 'Ctrl+R / Ctrl+Shift+R'),
              ('删除当前页', 'Delete'),
              ('移到开头 / 结尾', 'Ctrl+Shift+↑ / Ctrl+Shift+↓'),
@@ -171,65 +186,6 @@ class MainWindow:
         if self.current_page == index:
             return
         self._on_reorder(self.current_page, index)
-
-    def _build_document_row(self):
-        """文档行：文档名 + 未保存标记 + 保存 + 溢出菜单。"""
-        row = ttk.Frame(self.root, style='Surface.TFrame')
-        row.pack(fill='x')
-        ttk.Separator(self.root, orient='horizontal').pack(fill='x')
-
-        self._doc_name = ttk.Label(
-            row, text='未命名', style='Surface.TLabel',
-            font=font('h1', 'bold'))
-        self._doc_name.pack(side='left', padx=(12, 6), pady=6)
-
-        self._dirty_dot = tk.Canvas(row, width=10, height=10,
-                                    highlightthickness=0, bg=SURFACE)
-        self._dirty_dot.pack(side='left')
-        self._paint_dirty()
-
-        ttk.Button(row, text='⋯', style='Surface.Ghost.TButton',
-                   command=self._show_overflow_menu).pack(
-                       side='right', padx=2, pady=6)
-        self._save_button = ttk.Button(
-            row, text='保存', style='Primary.TButton', command=self.save_pdf,
-            state='disabled')
-        self._save_button.pack(side='right', padx=(2, 8), pady=6)
-
-    def _paint_dirty(self):
-        self._dirty_dot.delete('all')
-        if self.doc.is_modified:
-            self._dirty_dot.create_oval(1, 1, 9, 9, fill=MARKER, outline='')
-
-    def _show_overflow_menu(self):
-        menu = tk.Menu(self.root, tearoff=0)
-        menu.add_command(label='页面信息…', command=self._show_page_info)
-        menu.add_separator()
-        menu.add_command(label='转换后端…', command=self._open_backend_dialog)
-        menu.add_command(label='重新载入文件',
-                         command=self._reload_document)
-        menu.add_separator()
-        menu.add_command(label='关于本应用', command=self._show_about)
-        try:
-            menu.tk_popup(self.root.winfo_pointerx(),
-                          self.root.winfo_pointery())
-        finally:
-            menu.grab_release()
-
-    def _open_backend_dialog(self):
-        dialog = BackendDialog(
-            self.root,
-            self.doc.converter.backend_status(),
-            self.doc.converter.requested_name,
-            on_select=self._apply_backend,
-            on_install=self._prompt_install_backend)
-        dialog.wait_window()
-
-    def _label_for_backend(self, name):
-        for backend_name, label in self.doc.converter.backend_choices():
-            if backend_name == name:
-                return label
-        return name
 
     def _build_main_area(self):
         paned = ttk.PanedWindow(self.root, orient='horizontal')
@@ -272,12 +228,16 @@ class MainWindow:
             self._paned.pack_forget()
             self.empty_state.pack(fill='both', expand=True)
             self._save_button.configure(state='disabled')
+            self._insert_button.configure(state='disabled')
+            self._doc_name.configure(text='未打开文档', foreground=INK_2)
+            self._refresh_undo_buttons()
         else:
             self.empty_state.pack_forget()
             self._paned.pack(**self._paned_pack)
             self.root.update_idletasks()
             self._set_rail_width(self._paned)
             self._save_button.configure(state='normal')
+            self._insert_button.configure(state='normal')
 
     def _set_rail_width(self, paned, width=280):
         try:
@@ -635,6 +595,11 @@ class MainWindow:
         bind('<Control-Shift-I>', lambda e: self._show_page_info())
         bind('<Control-comma>', lambda e: self._open_backend_dialog())
         bind('<Control-question>', lambda e: self._show_shortcuts())
+        bind('<Control-z>', lambda e: self.undo())
+        bind('<Control-Z>', lambda e: self.undo())
+        bind('<Control-Shift-Z>', lambda e: self.redo())
+        bind('<Control-y>', lambda e: self.redo())
+        bind('<Control-Y>', lambda e: self.redo())
         bind('<Control-q>', lambda e: self._on_close())
         bind('<Control-Q>', lambda e: self._on_close())
         bind('<Delete>', self._on_delete_key)
@@ -655,6 +620,38 @@ class MainWindow:
         if isinstance(widget, (tk.Entry, tk.Text, ttk.Entry)):
             return
         self.delete_current_page()
+
+    def undo(self):
+        if not self.doc.undo():
+            toast(self.root, '没有可撤销的修改', 'warn')
+            return
+        self._after_history_change('已撤销')
+
+    def redo(self):
+        if not self.doc.redo():
+            toast(self.root, '没有可重做的修改', 'warn')
+            return
+        self._after_history_change('已重做')
+
+    def _after_history_change(self, label):
+        self.thumb_panel.refresh()
+        if self.doc.page_count:
+            self.current_page = min(self.current_page,
+                                    self.doc.page_count - 1)
+        self._show_page(self.current_page)
+        self._update_title()
+        self._refresh_facts()
+        self._refresh_undo_buttons()
+        self._update_status('{}（还能撤销 {} 步）'.format(
+            label, self.doc.history.undo_steps))
+
+    def _refresh_undo_buttons(self):
+        can_undo = self.doc.history.can_undo
+        can_redo = self.doc.history.can_redo
+        self._undo_button.configure(
+            state='normal' if can_undo else 'disabled')
+        self._redo_button.configure(
+            state='normal' if can_redo else 'disabled')
 
     def _update_status(self, text):
         self.statusbar.configure(text=text)
@@ -730,7 +727,7 @@ class MainWindow:
         name = (os.path.basename(self.doc.filepath)
                 if self.doc.filepath else '未命名')
         self.root.title('{} — PDF 内嵌编辑助手'.format(name))
-        self._doc_name.configure(text=name)
+        self._doc_name.configure(text=name, foreground=INK)
         self._paint_dirty()
 
     # ---------- 文件操作 ----------
@@ -744,6 +741,7 @@ class MainWindow:
             push_recent(path)
             self.current_page = 0
             self._show_empty(False)
+            self._refresh_undo_buttons()
             self.thumb_panel.load_document(self.doc)
             self._show_page(0)
             self._update_status('已打开 {}'.format(
@@ -822,6 +820,7 @@ class MainWindow:
     def _on_reorder(self, from_pos, to_pos):
         try:
             self.doc.move_page(from_pos, to_pos)
+            self._refresh_undo_buttons()
             self.thumb_panel.refresh()
             self.current_page = to_pos
             self.thumb_panel.select_page(to_pos)
@@ -845,6 +844,7 @@ class MainWindow:
             return
         try:
             self.doc.delete_page(page_num)
+            self._refresh_undo_buttons()
             self.thumb_panel.refresh()
             new_pos = min(page_num, self.doc.page_count - 1)
             self._show_page(new_pos)
@@ -856,6 +856,7 @@ class MainWindow:
     def _on_rotate_page(self, page_num, angle=90):
         try:
             self.doc.rotate_page(page_num, angle)
+            self._refresh_undo_buttons()
             self.thumb_panel.refresh_page(page_num)
             self._show_page(page_num)
             self._update_title()
@@ -967,12 +968,14 @@ class MainWindow:
                 detail='\n'.join(r['error'] for r in failed))
             self._update_status('已插入 {} 页，{} 个文件失败'.format(
                 added, len(failed)))
+            self._refresh_undo_buttons()
             return
 
         self._update_status('已插入 {} 页，共 {} 页'.format(
             added, self.doc.page_count))
         toast(self.root, '已插入 {} 页，共 {} 页'.format(
             added, self.doc.page_count), 'ok')
+        self._refresh_undo_buttons()
 
     def _do_insert(self, filepath, position):
         self._do_insert_many([filepath], position)
