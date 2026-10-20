@@ -9,6 +9,7 @@ import threading
 from core.backends import installer
 from core.pdf_document import PDFDocument
 from core.settings import load_backend, save_backend
+from gui.theme import ACCENT, INK_2, LINE, PAPER, SURFACE, init_theme
 from gui.thumbnail_panel import ThumbnailPanel
 from gui.preview_panel import PreviewPanel
 
@@ -33,6 +34,7 @@ class MainWindow:
 
     def __init__(self):
         self.root = tk.Tk()
+        init_theme(self.root)
         self.root.title('PDF 内嵌编辑助手')
         self.root.geometry('1100x700')
         self.root.minsize(800, 500)
@@ -105,8 +107,9 @@ class MainWindow:
         self.root.config(menu=menubar)
 
     def _build_toolbar(self):
-        toolbar = ttk.Frame(self.root, relief='raised')
-        toolbar.pack(fill='x', padx=2, pady=2)
+        toolbar = ttk.Frame(self.root, style='Surface.TFrame')
+        toolbar.pack(fill='x')
+        ttk.Separator(self.root, orient='horizontal').pack(fill='x')
 
         ttk.Button(toolbar, text='打开 PDF',
                    command=self.open_pdf).pack(side='left', padx=4, pady=3)
@@ -114,7 +117,7 @@ class MainWindow:
                    command=self.insert_file_dialog).pack(
                        side='left', padx=4, pady=3)
         ttk.Separator(toolbar, orient='vertical').pack(
-            side='left', fill='y', padx=6, pady=3)
+            side='left', fill='y', padx=6, pady=6)
         ttk.Button(toolbar, text='左旋',
                    command=lambda: self.rotate_page(-90)).pack(
                        side='left', padx=4, pady=3)
@@ -122,11 +125,11 @@ class MainWindow:
                    command=lambda: self.rotate_page(90)).pack(
                        side='left', padx=4, pady=3)
         ttk.Separator(toolbar, orient='vertical').pack(
-            side='left', fill='y', padx=6, pady=3)
+            side='left', fill='y', padx=6, pady=6)
         ttk.Button(toolbar, text='删除当前页',
                    command=self.delete_current_page).pack(
                        side='left', padx=4, pady=3)
-        ttk.Button(toolbar, text='保存',
+        ttk.Button(toolbar, text='保存', style='Primary.TButton',
                    command=self.save_pdf).pack(
                        side='right', padx=4, pady=3)
 
@@ -183,8 +186,11 @@ class MainWindow:
 
     def _build_statusbar(self):
         self.statusbar = ttk.Label(
-            self.root, text='就绪', relief='sunken', anchor='w')
-        self.statusbar.pack(fill='x', side='bottom', padx=2, pady=2)
+            self.root, text='就绪', style='Surface.TLabel', anchor='w',
+            padding=(8, 4))
+        self.statusbar.pack(fill='x', side='bottom')
+        ttk.Separator(self.root, orient='horizontal').pack(
+            fill='x', side='bottom')
         self._update_status(
             '就绪  |  转换后端: {}'.format(self._backend_label()))
 

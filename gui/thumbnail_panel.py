@@ -1,6 +1,9 @@
 import tkinter as tk
 from tkinter import ttk
 
+from gui.theme import (ACCENT, ACCENT_TINT, BG, INK_2, LINE, MARKER,
+                        PAPER, font)
+
 
 class ThumbnailPanel:
     """左侧缩略图面板，支持拖拽排序和右键菜单。"""
@@ -20,6 +23,7 @@ class ThumbnailPanel:
         self.doc = None
         self.thumbnails = []
         self.labels = []
+        self.marker_widgets = []
         self.selected = None
         self._drag_data = {'index': None, 'start_y': None}
 
@@ -27,10 +31,10 @@ class ThumbnailPanel:
         canvas_frame.pack(fill='both', expand=True)
 
         self.canvas = tk.Canvas(canvas_frame, highlightthickness=0,
-                                bg='#f0f0f0')
+                                bg=BG, highlightbackground=BG)
         self.scrollbar = ttk.Scrollbar(canvas_frame, orient='vertical',
                                        command=self.canvas.yview)
-        self.inner = tk.Frame(self.canvas, bg='#f0f0f0')
+        self.inner = tk.Frame(self.canvas, bg=BG)
 
         self.inner.bind('<Configure>',
                         lambda e: self.canvas.configure(
@@ -65,6 +69,7 @@ class ThumbnailPanel:
             w.destroy()
         self.thumbnails.clear()
         self.labels.clear()
+        self.marker_widgets.clear()
         self.selected = None
 
         if not self.doc or self.doc.page_count == 0:
@@ -80,17 +85,24 @@ class ThumbnailPanel:
         photo = ImageTk.PhotoImage(img)
         self.thumbnails.append(photo)
 
-        frame = tk.Frame(self.inner, relief='solid', borderwidth=1,
-                         bg='#ffffff')
+        frame = tk.Frame(self.inner, relief='flat', borderwidth=1,
+                         bg=PAPER, highlightbackground=LINE,
+                         highlightthickness=1)
         frame.pack(padx=self.PADDING, pady=4, fill='x')
 
-        lbl = tk.Label(frame, image=photo, cursor='hand2', bg='#ffffff')
+        marker = tk.Frame(frame, width=3, bg=PAPER)
+        marker.pack(side='left', fill='y')
+
+        lbl = tk.Label(frame, image=photo, cursor='hand2', bg=PAPER)
         lbl.pack(padx=2, pady=2)
         lbl.image = photo
 
         info = tk.Label(frame, text=f'第 {page_num + 1} 页',
-                        font=('', 9), anchor='center', bg='#ffffff')
+                        font=font('num'), anchor='center', bg=PAPER,
+                        foreground=INK_2)
         info.pack(fill='x', pady=(0, 2))
+
+        self.marker_widgets.append(marker)
 
         def make_handler(p):
             def on_press(event):
@@ -131,15 +143,22 @@ class ThumbnailPanel:
     def select_page(self, page_num, callback=False):
         if self.selected is not None and self.selected < len(self.labels):
             frame, _, _ = self.labels[self.selected]
-            frame.configure(relief='solid', bg='#ffffff')
+            frame.configure(relief='flat', bg=PAPER,
+                            highlightbackground=LINE)
             for child in frame.winfo_children():
-                child.configure(bg='#ffffff')
+                child.configure(bg=PAPER)
+            if self.selected < len(self.marker_widgets):
+                self.marker_widgets[self.selected].configure(bg=PAPER)
         self.selected = page_num
         if page_num < len(self.labels):
             frame, _, _ = self.labels[page_num]
-            frame.configure(relief='raised', borderwidth=2, bg='#e0e0ff')
+            frame.configure(relief='flat', borderwidth=1, bg=ACCENT_TINT,
+                            highlightbackground=ACCENT)
             for child in frame.winfo_children():
-                child.configure(bg='#e0e0ff')
+                child.configure(bg=ACCENT_TINT)
+            frame.configure(highlightthickness=3)
+            if page_num < len(self.marker_widgets):
+                self.marker_widgets[page_num].configure(bg=MARKER)
         if callback and self.on_select:
             self.on_select(page_num)
 

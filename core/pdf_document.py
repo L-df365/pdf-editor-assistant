@@ -2,8 +2,7 @@ import os
 import pymupdf
 import tempfile
 from .converter import DocumentConverter
-
-IMAGE_EXTS = {'.png', '.jpg', '.jpeg', '.bmp', '.gif', '.tiff', '.tif', '.webp'}
+from .formats import IMAGE_EXTS
 
 
 class PDFDocument:
@@ -45,6 +44,35 @@ class PDFDocument:
     def get_page_size(self, page_num):
         page = self.doc.load_page(page_num)
         return page.rect.width, page.rect.height
+
+    def insert_files(self, filepaths, position):
+        """按给定顺序批量插入文件。
+
+        单个文件失败不会回滚已插入的文件；返回逐个文件的结果摘要。
+        """
+        results = []
+        offset = position
+        for filepath in filepaths:
+            before = self.page_count
+            try:
+                self.insert_file(filepath, offset)
+            except Exception as exc:
+                results.append({
+                    'path': filepath,
+                    'ok': False,
+                    'error': str(exc),
+                    'pages': 0,
+                })
+                continue
+            added = self.page_count - before
+            offset += added
+            results.append({
+                'path': filepath,
+                'ok': True,
+                'error': '',
+                'pages': added,
+            })
+        return results
 
     def insert_file(self, filepath, position):
         ext = os.path.splitext(filepath)[1].lower()

@@ -1,6 +1,8 @@
 import tkinter as tk
 from tkinter import ttk
 
+from gui.theme import STAGE, font
+
 
 class PreviewPanel:
     """右侧预览面板，显示当前选中页面的大图。"""
@@ -23,7 +25,8 @@ class PreviewPanel:
                                   command=self._zoom_100)
         self.btn_100.pack(side='left', padx=2)
 
-        self.page_label = ttk.Label(toolbar, text='', font=('', 10, 'bold'))
+        self.page_label = ttk.Label(toolbar, text='', style='Num.TLabel',
+                                    font=font('num'))
         self.page_label.pack(side='right', padx=10)
 
         sep = ttk.Separator(self.frame, orient='horizontal')
@@ -33,7 +36,7 @@ class PreviewPanel:
         canvas_frame.pack(fill='both', expand=True)
 
         self.canvas = tk.Canvas(canvas_frame, highlightthickness=0,
-                                bg='#808080')
+                                bg=STAGE, highlightbackground=STAGE)
         self.h_scroll = ttk.Scrollbar(canvas_frame, orient='horizontal',
                                       command=self.canvas.xview)
         self.v_scroll = ttk.Scrollbar(canvas_frame, orient='vertical',
