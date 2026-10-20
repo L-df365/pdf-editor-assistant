@@ -127,9 +127,11 @@ class FileSheet(Sheet):
         right.grid(row=0, column=2, sticky='nse', padx=(14, 0))
         ttk.Label(right, text='详情', style='Paper.TLabel', font=font('meta'),
                   foreground=INK_3).pack(anchor='w', pady=(0, 6))
-        self.info_label = tk.Label(right, text='在中间的列表里选一个文件\n这里会显示它的信息',
+        # 不要用 width=（字符数）：中日韩字体的字宽和"字符"对不上，
+        # 宽度算小了文字会被切掉。让它按文本自适应。
+        self.info_label = tk.Label(right, text='在列表里选一个文件\n这里会显示它的信息',
                                    bg=PAPER, fg=INK_2, font=font('meta'),
-                                   justify='left', width=18, anchor='w')
+                                   justify='left', anchor='w')
         self.info_label.pack(anchor='w')
 
     def _build_footer(self, confirm_text):
