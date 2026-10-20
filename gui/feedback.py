@@ -7,6 +7,7 @@
 import tkinter as tk
 from tkinter import ttk
 
+from gui.draw import drop_shadow, rounded_rect
 from gui.theme import (ACCENT, DANGER, INK, INK_2, INK_3, LINE, MARKER, OK,
                         PAPER, font)
 
@@ -55,25 +56,73 @@ def toast(parent, message, kind='info', duration=3500):
     return win
 
 
+def attach_tooltip(widget, text, delay=500):
+    """给控件挂一个简单提示（图标按钮没有文字时需要）。"""
+    state = {'win': None, 'job': None}
+
+    def show():
+        if state['win'] is not None:
+            return
+        x = widget.winfo_rootx() + widget.winfo_width() // 2
+        y = widget.winfo_rooty() + widget.winfo_height() + 6
+        win = tk.Toplevel(widget)
+        win.overrideredirect(True)
+        try:
+            win.attributes('-topmost', True)
+        except tk.TclError:
+            pass
+        tk.Label(win, text=text, bg=INK, fg=PAPER, font=font('meta'),
+                 padx=8, pady=4).pack()
+        win.update_idletasks()
+        win.geometry('+{}+{}'.format(
+            x - win.winfo_reqwidth() // 2, y))
+        state['win'] = win
+
+    def hide():
+        if state['job'] is not None:
+            try:
+                widget.after_cancel(state['job'])
+            except tk.TclError:
+                pass
+            state['job'] = None
+        if state['win'] is not None:
+            state['win'].destroy()
+            state['win'] = None
+
+    widget.bind('<Enter>', lambda e: state.update(
+        job=widget.after(delay, show)), add='+')
+    widget.bind('<Leave>', lambda e: hide(), add='+')
+    widget.bind('<ButtonPress>', lambda e: hide(), add='+')
+    return hide
+
+
 class Sheet(tk.Toplevel):
-    """统一样式的模态面板骨架。"""
+    """统一样式的模态卡片：无系统边框，圆角纸面 + 投影。"""
+
+    MARGIN = 12
+    RADIUS = 10
 
     def __init__(self, parent, title, body='', width=420):
         super().__init__(parent)
         self.withdraw()
-        self.title(title)
+        self.overrideredirect(True)
         self.transient(parent)
-        self.resizable(False, False)
-        self.configure(bg=PAPER)
         self.result = None
 
-        border = tk.Frame(self, bg=LINE)
-        border.pack(fill='both', expand=True)
-        frame = ttk.Frame(border, style='Paper.TFrame', padding=(20, 16))
-        frame.pack(fill='both', expand=True, padx=1, pady=1)
+        self._bg = tk.Canvas(self, highlightthickness=0, bg=PAPER)
+        self._bg.place(x=0, y=0, relwidth=1, relheight=1)
+        self._bg.bind('<Configure>', self._paint_card)
 
-        ttk.Label(frame, text=title, style='Paper.TLabel',
-                  font=font('h1', 'bold')).pack(anchor='w')
+        frame = ttk.Frame(self, style='Paper.TFrame', padding=(22, 16))
+        frame.pack(padx=self.MARGIN, pady=self.MARGIN)
+        self._frame = frame
+
+        header = ttk.Frame(frame, style='Paper.TFrame')
+        header.pack(fill='x')
+        ttk.Label(header, text=title, style='Paper.TLabel',
+                  font=font('h1', 'bold')).pack(side='left')
+        ttk.Button(header, text='×', style='Paper.Ghost.TButton',
+                   command=self._cancel, width=3).pack(side='right')
         if body:
             ttk.Label(frame, text=body, style='Paper.TLabel',
                       font=font('body'), foreground=INK_2, wraplength=width,
@@ -87,16 +136,34 @@ class Sheet(tk.Toplevel):
 
         self.bind('<Escape>', lambda e: self._cancel())
 
+    def _paint_card(self, event=None):
+        w = max(self._bg.winfo_width(), 40)
+        h = max(self._bg.winfo_height(), 40)
+        self._bg.delete('card')
+        m = self.MARGIN
+        drop_shadow(self._bg, m, m, w - m, h - m, self.RADIUS, offset=4,
+                    tags='card')
+        rounded_rect(self._bg, m, m, w - m, h - m, self.RADIUS, fill=PAPER,
+                     outline=LINE, width=1, tags='card')
+
     def _cancel(self):
         self.result = False
         self.destroy()
 
     def _place(self, parent):
         self.update_idletasks()
-        x = parent.winfo_rootx() + (parent.winfo_width()
-                                    - self.winfo_reqwidth()) // 2
-        y = parent.winfo_rooty() + (parent.winfo_height()
-                                    - self.winfo_reqheight()) // 3
+        width = self.winfo_reqwidth()
+        height = self.winfo_reqheight()
+        if width <= 1:
+            width = self._frame.winfo_reqwidth() + self.MARGIN * 2
+        if height <= 1:
+            height = self._frame.winfo_reqheight() + self.MARGIN * 2
+        self.geometry('{}x{}'.format(width, height))
+        self.update_idletasks()
+        x = parent.winfo_rootx() + (parent.winfo_width() - width) // 2
+        y = parent.winfo_rooty() + (parent.winfo_height() - height) // 3
+        x = max(parent.winfo_rootx() + 8, min(x,
+                parent.winfo_rootx() + parent.winfo_width() - width - 8))
         self.geometry('+{}+{}'.format(x, y))
         self.deiconify()
         self.grab_set()

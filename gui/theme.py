@@ -58,6 +58,7 @@ NUM_FONT = 'TkFixedFont'
 
 SIZE = {
     'display': 18,   # 空状态主标题（全应用仅此一处）
+    'wordmark': 12,  # 顶栏字标
     'h1': 13,        # 面板 / 弹层标题、文档名
     'h2': 11,        # 区块标题、按钮
     'body': 10,      # 正文、菜单项、输入
@@ -77,6 +78,8 @@ def font(kind='body', weight=''):
     """返回 tk 字体元组。kind: display/h1/h2/body/meta/num。"""
     if kind == 'display':
         family, size = DISPLAY_FONT, SIZE['display']
+    elif kind == 'wordmark':
+        family, size = DISPLAY_FONT, SIZE['wordmark']
     elif kind == 'num':
         family, size = NUM_FONT, SIZE['num']
     else:

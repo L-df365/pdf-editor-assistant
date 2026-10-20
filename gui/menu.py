@@ -7,8 +7,9 @@ Tk 的 `tk.Menu` 只能改颜色：没有圆角、阴影、图标、分区，做
 
 import tkinter as tk
 
+from gui.draw import rounded_rect
 from gui.theme import (ACCENT, ACCENT_TINT, DANGER, INK, INK_2, INK_3, LINE,
-                        LINE_SOFT, PAPER, font)
+                        PAPER, font)
 
 ROW_HEIGHT = 30
 PADDING_X = 12
@@ -19,15 +20,26 @@ SHADOW_TONES = ('#C6CECC', '#D0D7D5', '#D8DEDC')
 DANGER_TINT = '#F8E7E3'
 
 
-def _rounded(canvas, x0, y0, x1, y1, r, **kwargs):
-    points = [
-        x0 + r, y0, x1 - r, y0, x1, y0,
-        x1, y0 + r, x1, y1 - r, x1, y1,
-        x1 - r, y1, x0 + r, y1, x0, y1,
-        x0, y1 - r, x0, y0 + r, x0, y0,
-    ]
-    return canvas.create_polygon(points, smooth=True, splinesteps=16,
-                                  **kwargs)
+#: 当前打开的浮层 + 全局点选调度（只装一次，避免反复 bind/unbind）
+_LIVE = []
+_dispatch_installed = False
+
+
+def _ensure_dispatch():
+    global _dispatch_installed
+    if _dispatch_installed:
+        return
+    root = tk._default_root
+    if root is None:
+        return
+    for sequence in ('<Button-1>', '<Button-3>', '<Escape>'):
+        root.bind_all(sequence, _dispatch, add='+')
+    _dispatch_installed = True
+
+
+def _dispatch(event):
+    for popover in list(_LIVE):
+        popover._handle_dismiss(event)
 
 
 class MenuItem:
@@ -56,6 +68,8 @@ class MenuPopover:
         self._win = None
         self._canvas = None
         self._rows = []
+        self._dismiss_func = None
+        self._dismiss_binding = ()
 
     # -- 显示 ----------------------------------------------------------
 
@@ -77,10 +91,36 @@ class MenuPopover:
             y = max(8, y - height)
         self._win.geometry('+{}+{}'.format(x, y))
         self._win.deiconify()
-        self._win.grab_set()
         self._win.focus_set()
+        self._install_dismiss_handler()
+
+    def _install_dismiss_handler(self):
+        """全局点一下菜单外面就消失（由统一的调度器处理）。"""
+        _ensure_dispatch()
+        if self not in _LIVE:
+            _LIVE.append(self)
+
+    def _remove_dismiss_handler(self):
+        if self in _LIVE:
+            _LIVE.remove(self)
+
+    def _handle_dismiss(self, event):
+        if self._win is None:
+            return
+        if event.type == '<Escape>':
+            self.hide()
+            return
+        x = getattr(event, 'x_root', 0)
+        y = getattr(event, 'y_root', 0)
+        left = self._win.winfo_rootx()
+        top = self._win.winfo_rooty()
+        inside = (left <= x <= left + self._win.winfo_width()
+                  and top <= y <= top + self._win.winfo_height())
+        if not inside:
+            self.hide()
 
     def hide(self):
+        self._remove_dismiss_handler()
         if self._win is not None:
             try:
                 self._win.grab_release()
@@ -114,10 +154,10 @@ class MenuPopover:
         width = 236
 
         for offset, tone in enumerate(reversed(SHADOW_TONES), start=1):
-            _rounded(self._canvas, offset, offset, width + offset,
-                     total + offset, CORNER, fill=tone, outline='')
+            rounded_rect(self._canvas, offset, offset, width + offset,
+                     total + offset, CORNER, fill=tone)
 
-        _rounded(self._canvas, 0, 0, width, total, CORNER, fill=PAPER,
+        rounded_rect(self._canvas, 0, 0, width, total, CORNER, fill=PAPER,
                  outline=LINE, width=1)
 
         has_icon = any(getattr(item, 'icon', '') for item in self.items)
@@ -188,10 +228,12 @@ class MenuPopover:
             self.active = -1
             return
         tint = DANGER_TINT if item.danger else ACCENT_TINT
-        _rounded(self._canvas, 3, top + 1, self._canvas.winfo_width() - 3,
-                 top + size - 1, 4, fill=tint, outline='', tags='hover')
+        rounded_rect(self._canvas, 3, top + 1, self._canvas.winfo_width() - 3,
+                 top + size - 1, 4, fill=tint, tags='hover')
 
     def _on_click(self, event):
+        if self._win is not None:
+            self._win.update_idletasks()
         index = self._row_at(event.y)
         if index < 0:
             self.hide()
@@ -231,8 +273,8 @@ class MenuPopover:
         if not item.enabled:
             return
         tint = DANGER_TINT if item.danger else ACCENT_TINT
-        _rounded(self._canvas, 3, top + 1, self._canvas.winfo_width() - 3,
-                 top + size - 1, 4, fill=tint, outline='', tags='hover')
+        rounded_rect(self._canvas, 3, top + 1, self._canvas.winfo_width() - 3,
+                 top + size - 1, 4, fill=tint, tags='hover')
 
 
 def build(items):

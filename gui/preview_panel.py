@@ -1,6 +1,7 @@
 import tkinter as tk
 from tkinter import ttk
 
+from gui.feedback import attach_tooltip
 from gui.menu import MenuPopover, build
 from gui.theme import (ACCENT, INK_2, LINE, PAPER, STAGE, SURFACE,
                         font)
@@ -20,7 +21,7 @@ class PreviewPanel:
     """右侧预览面板：页面预览 + 缩放分段 + 页码计数。"""
 
     def __init__(self, parent, on_rotate=None, on_delete=None,
-                 on_insert=None, on_export=None):
+                 on_insert=None, on_export=None, on_undo=None, on_redo=None):
         self.frame = ttk.Frame(parent, style='Surface.TFrame')
         self.current_photo = None
         self.zoom = 1.0
@@ -32,6 +33,8 @@ class PreviewPanel:
         self.on_delete = on_delete
         self.on_insert = on_insert
         self.on_export = on_export
+        self.on_undo = on_undo
+        self.on_redo = on_redo
 
         self._build_action_row()
         self._build_canvas()
@@ -50,6 +53,22 @@ class PreviewPanel:
             ttk.Button(bar, text=text, style=style,
                        command=command).pack(side='left', padx=1, pady=1)
 
+        if self.on_undo:
+            self.undo_button = ttk.Button(
+                bar, text='←', style='Paper.Segment.TButton',
+                command=self.on_undo, state='disabled', width=3)
+            self.undo_button.pack(side='left', padx=1, pady=1)
+            attach_tooltip(self.undo_button, '撤销（Ctrl+Z）')
+        if self.on_redo:
+            self.redo_button = ttk.Button(
+                bar, text='→', style='Paper.Segment.TButton',
+                command=self.on_redo, state='disabled', width=3)
+            self.redo_button.pack(side='left', padx=1, pady=1)
+            attach_tooltip(self.redo_button, '重做（Ctrl+Shift+Z）')
+        if self.on_undo or self.on_redo:
+            tk.Frame(bar, bg=PAPER, width=1, height=18,
+                     highlightbackground=LINE,
+                     highlightthickness=0).pack(side='left', padx=4)
         if self.on_rotate:
             action('↺ 逆时针', lambda: self.on_rotate(-90))
             action('↻ 顺时针', lambda: self.on_rotate(90))
@@ -137,6 +156,14 @@ class PreviewPanel:
         self._canvas_height = event.height
         if self._last_doc is not None:
             self._render_preview(event.width, event.height)
+
+    def set_history(self, can_undo, can_redo):
+        if getattr(self, 'undo_button', None) is not None:
+            self.undo_button.configure(
+                state='normal' if can_undo else 'disabled')
+        if getattr(self, 'redo_button', None) is not None:
+            self.redo_button.configure(
+                state='normal' if can_redo else 'disabled')
 
     def set_zoom(self, mode):
         self._mode = mode

@@ -103,10 +103,10 @@ class FileSheet(Sheet):
         self.tree.heading('size', text='大小',
                           command=lambda: self._sort_by('size'))
         self.tree.column('sel', width=26, stretch=False, anchor='center')
-        self.tree.column('name', width=220, anchor='w')
-        self.tree.column('type', width=56, stretch=False, anchor='w')
-        self.tree.column('mtime', width=86, stretch=False, anchor='w')
-        self.tree.column('size', width=64, stretch=False, anchor='e')
+        self.tree.column('name', width=200, stretch=False, anchor='w')
+        self.tree.column('type', width=52, stretch=False, anchor='w')
+        self.tree.column('mtime', width=84, stretch=False, anchor='w')
+        self.tree.column('size', width=62, stretch=False, anchor='e')
         self.tree.tag_configure('picked', foreground=ACCENT)
         self.tree.tag_configure('dim', foreground=INK_3)
         vsb = ttk.Scrollbar(middle, orient='vertical',
@@ -125,12 +125,12 @@ class FileSheet(Sheet):
         ttk.Label(right, text='预览', style='Paper.TLabel', font=font('meta'),
                   foreground=INK_3).pack(anchor='w', pady=(0, 6))
         self.preview_label = tk.Label(right, text='', bg=PAPER, fg=INK_3,
-                                      font=font('meta'), width=18, height=6,
+                                      font=font('meta'), width=16, height=6,
                                       justify='center')
         self.preview_label.pack(anchor='w')
         self.info_label = tk.Label(right, text='选一个文件看看',
                                    bg=PAPER, fg=INK_2, font=font('meta'),
-                                   justify='left', width=18, anchor='w')
+                                   justify='left', width=16, anchor='w')
         self.info_label.pack(anchor='w', pady=(8, 0))
 
     def _build_footer(self, confirm_text):
@@ -138,7 +138,7 @@ class FileSheet(Sheet):
         ttk.Button(foot, text='浏览全部文件…', style='Paper.Secondary.TButton',
                    command=self._browse).pack(side='left')
 
-        entry = ttk.Entry(foot, width=34, font=font('body'))
+        entry = ttk.Entry(foot, width=16, font=font('body'))
         entry.pack(side='left', padx=(12, 8))
         entry.insert(0, self.cwd)
         self.path_entry = entry
@@ -152,8 +152,8 @@ class FileSheet(Sheet):
         ttk.Button(foot, text='取消', style='Paper.Ghost.TButton',
                    command=self._cancel).pack(side='right', padx=(0, 8))
         self.selection_label = tk.Label(
-            foot, text='', bg=ACCENT_TINT, fg=ACCENT, font=font('meta'),
-            padx=10, pady=4)
+            foot, text='', bg=ACCENT_TINT, fg=ACCENT,
+            anchor='w', font=font('body', 'bold'), padx=12, pady=6)
         self.selection_label.pack(side='right', padx=(0, 12))
         self.selection_label.pack_forget()
         if self.multi:
@@ -338,7 +338,7 @@ class FileSheet(Sheet):
         count = len(self.selected)
         if count and self.multi:
             self.selection_label.configure(
-                text='已选 {} 个文件'.format(count))
+                text='✓ 已选 {} 个文件'.format(count))
             if not self.selection_label.winfo_ismapped():
                 self.selection_label.pack(side='right', padx=(0, 12))
         else:

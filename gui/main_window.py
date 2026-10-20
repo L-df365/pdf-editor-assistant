@@ -83,30 +83,21 @@ class MainWindow:
         bar.pack(fill='x')
         ttk.Separator(self.root, orient='horizontal').pack(fill='x')
 
-        self._doc_name = ttk.Label(
-            bar, text='未打开文档', style='Surface.TLabel',
-            font=font('h1', 'bold'), foreground=INK_2)
-        self._doc_name.pack(side='left', padx=(16, 8), pady=9)
-
-        self._dirty_dot = tk.Canvas(bar, width=10, height=10,
-                                    highlightthickness=0, bg=SURFACE)
-        self._dirty_dot.pack(side='left')
+        # 文件名由窗口标题栏承担，顶栏不再重复，避免长文件名把按钮挤没
+        ttk.Label(bar, text='PDF 内嵌编辑助手', style='Surface.TLabel',
+                  font=font('wordmark'), foreground=INK_2).pack(
+                      side='left', padx=(16, 10), pady=8)
 
         ttk.Button(bar, text='⋯', style='Surface.Ghost.TButton',
                    command=self._show_more_menu).pack(
                        side='right', padx=(2, 12), pady=6)
+        self._dirty_dot = tk.Canvas(bar, width=10, height=10,
+                                    highlightthickness=0, bg=SURFACE)
+        self._dirty_dot.pack(side='right', padx=(0, 2))
         self._save_button = ttk.Button(
             bar, text='保存', style='Primary.TButton', command=self.save_pdf,
             state='disabled')
-        self._save_button.pack(side='right', padx=(0, 2), pady=6)
-        self._redo_button = ttk.Button(
-            bar, text='重做', style='Surface.Secondary.TButton',
-            command=self.redo, state='disabled')
-        self._redo_button.pack(side='right', padx=(0, 2), pady=6)
-        self._undo_button = ttk.Button(
-            bar, text='撤销', style='Surface.Secondary.TButton',
-            command=self.undo, state='disabled')
-        self._undo_button.pack(side='right', padx=(0, 2), pady=6)
+        self._save_button.pack(side='right', padx=(0, 4), pady=6)
         self._insert_button = ttk.Button(
             bar, text='插入', style='Surface.Secondary.TButton',
             command=self.insert_file_dialog, state='disabled')
@@ -217,7 +208,9 @@ class MainWindow:
             on_rotate=lambda angle: self.rotate_page(angle),
             on_delete=self.delete_current_page,
             on_insert=self.insert_file_dialog,
-            on_export=self._export_current_page)
+            on_export=self._export_current_page,
+            on_undo=self.undo,
+            on_redo=self.redo)
         self.preview.pack(fill='both', expand=True)
         paned.add(right_frame, weight=1)
         self._show_empty(True)
@@ -229,7 +222,6 @@ class MainWindow:
             self.empty_state.pack(fill='both', expand=True)
             self._save_button.configure(state='disabled')
             self._insert_button.configure(state='disabled')
-            self._doc_name.configure(text='未打开文档', foreground=INK_2)
             self._refresh_undo_buttons()
         else:
             self.empty_state.pack_forget()
@@ -648,10 +640,7 @@ class MainWindow:
     def _refresh_undo_buttons(self):
         can_undo = self.doc.history.can_undo
         can_redo = self.doc.history.can_redo
-        self._undo_button.configure(
-            state='normal' if can_undo else 'disabled')
-        self._redo_button.configure(
-            state='normal' if can_redo else 'disabled')
+        self.preview.set_history(can_undo, can_redo)
 
     def _update_status(self, text):
         self.statusbar.configure(text=text)
@@ -727,7 +716,6 @@ class MainWindow:
         name = (os.path.basename(self.doc.filepath)
                 if self.doc.filepath else '未命名')
         self.root.title('{} — PDF 内嵌编辑助手'.format(name))
-        self._doc_name.configure(text=name, foreground=INK)
         self._paint_dirty()
 
     # ---------- 文件操作 ----------
