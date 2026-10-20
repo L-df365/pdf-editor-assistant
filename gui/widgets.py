@@ -213,7 +213,7 @@ class Chip(tk.Canvas):
 class RoundedCard(tk.Frame):
     """圆角卡片容器：抗锯齿圆角背景 + 投影，内部可正常放控件。"""
 
-    SHADOW_PAD = 7
+    IMAGE_PAD = 6      # 投影在图里占的边距（卡片本体在 (pad, pad)）
 
     def __init__(self, parent, radius=10, fill=PAPER, outline=LINE,
                  shadow=True, bg=None):
@@ -241,11 +241,21 @@ class RoundedCard(tk.Frame):
         if (width, height) == getattr(self, '_last_size', None):
             return
         self._last_size = (width, height)
-        pad = self.SHADOW_PAD if self._shadow else 0
-        self._canvas.configure(width=width + pad * 2, height=height + pad * 2)
-        self._canvas.coords(self._window, pad, pad)
-        self._photo = rounded_photo(width, height, self._radius, self._fill,
-                                    self._outline, 1, self._shadow)
+        # 内容要按圆角半径内缩：内容的矩形背景会盖住卡片圆角，
+        # 不内缩的话看起来就是"圆角错位/缺一块"。
+        shadow_pad = self.IMAGE_PAD if self._shadow else 0
+        card_w = width + self._radius * 2
+        card_h = height + self._radius * 2
+        self._canvas.configure(width=card_w + shadow_pad * 2,
+                              height=card_h + shadow_pad * 2)
+        self._canvas.coords(self._window,
+                             shadow_pad + self._radius,
+                             shadow_pad + self._radius)
+        self._photo = rounded_photo(card_w, card_h, self._radius, self._fill,
+                                    self._outline, 1, self._shadow,
+                                    root=self.winfo_toplevel(),
+                                    pad=shadow_pad)
         self._canvas.delete('card')
-        self._canvas.create_image(pad, pad, image=self._photo, anchor='nw')
+        self._canvas.create_image(shadow_pad, shadow_pad,
+                                  image=self._photo, anchor='nw')
         self._canvas.tag_lower('card')

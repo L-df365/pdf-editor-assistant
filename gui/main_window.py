@@ -8,7 +8,7 @@ import threading
 
 from core.backends import installer
 from core.pdf_document import PDFDocument
-from core.settings import load_backend, save_backend
+from core.settings import load_backend, load_recent, save_backend
 from gui.backend_dialog import BackendDialog
 from core import formats
 from core.settings import push_recent
@@ -17,7 +17,7 @@ from gui.empty_state import EmptyState
 from gui.file_sheet import FileSheet
 from gui.insert_sheet import InsertSheet
 from gui.widgets import FlatButton
-from gui.menu import MenuPopover, build
+from gui.menu import MenuPopover, accel_label, build
 from gui.theme import (ACCENT, INK, INK_2, INK_3, MARKER, OK, SURFACE,
                         font, init_theme)
 from gui.thumbnail_panel import ThumbnailPanel
@@ -51,6 +51,7 @@ class MainWindow:
         self.doc = PDFDocument()
         self.current_page = 0
         self._converting = False
+        self._menus = []
         self._installing = False
         self._install_log = []
         self._tasks = queue.Queue()
@@ -79,13 +80,25 @@ class MainWindow:
         self.root.after(120, self._poll_tasks)
 
     def _build_topbar(self):
-        """单条顶栏：左边是文档身份，右边是常用动作。"""
+        """顶栏：左侧文字菜单（文件 / 插入 / 设置 / 帮助），右侧 保存 + ⋯。
+
+        文件名由窗口标题栏承担，顶栏不重复。
+        """
         bar = ttk.Frame(self.root, style='Surface.TFrame')
         bar.pack(fill='x')
         ttk.Separator(self.root, orient='horizontal').pack(fill='x')
 
-        # 文件名由窗口标题栏承担，顶栏不再重复（也不要字标），避免长文件名
-        # 把按钮挤没；左侧留白，让顶栏只剩命令。
+        self._menu_items = {}
+        for label, builder in (('文件', self._menu_file),
+                               ('插入', self._menu_insert),
+                               ('设置', self._menu_settings),
+                               ('帮助', self._menu_help)):
+            button = FlatButton(bar, label, variant='menu', bg=SURFACE)
+            button.pack(side='left', padx=(2, 2), pady=6)
+            button.bind('<Button-1>',
+                        lambda e, b=button, fn=builder:
+                        self._open_top_menu(fn, b), add='+')
+            self._menu_items[label] = button
 
         FlatButton(bar, '⋯', command=self._show_more_menu, variant='ghost',
                    bg=SURFACE, width=32).pack(side='right', padx=(2, 12),
@@ -96,12 +109,47 @@ class MainWindow:
         self._save_button = FlatButton(
             bar, '保存', command=self.save_pdf, variant='primary', bg=SURFACE)
         self._save_button.pack(side='right', padx=(0, 4), pady=6)
-        self._insert_button = FlatButton(
-            bar, '插入', command=self.insert_file_dialog,
-            variant='secondary', bg=SURFACE)
-        self._insert_button.pack(side='right', padx=(0, 2), pady=6)
-        FlatButton(bar, '打开', command=self.open_pdf, variant='secondary',
-                   bg=SURFACE).pack(side='right', padx=(0, 6), pady=6)
+
+    def _open_top_menu(self, builder, button):
+        """点顶栏的文字项：弹出菜单浮层。"""
+        menu = MenuPopover(self.root, builder())
+        self._menus.append(menu)
+        menu.show(button.winfo_rootx(),
+                  button.winfo_rooty() + button.winfo_height() + 2)
+
+    def _menu_file(self):
+        return build([
+            ('打开 PDF…', self.open_pdf, accel_label('Ctrl+O')),
+            ('打开最近文件…', self._open_recent, accel_label('Ctrl+Shift+O'),
+             '', bool(load_recent())),
+            None,
+            ('保存', self.save_pdf, accel_label('Ctrl+S')),
+            ('另存为…', self.save_as, accel_label('Ctrl+Shift+S')),
+            None,
+            ('页面信息…', self._show_page_info, accel_label('Ctrl+Shift+I')),
+            None,
+            ('退出', self._on_close, accel_label('Ctrl+Q')),
+        ])
+
+    def _menu_insert(self):
+        return build([
+            ('在当前页后插入文件…', self.insert_file_dialog,
+             accel_label('Ctrl+I')),
+            ('插入到文末', lambda: self.insert_file_at(self.doc.page_count)),
+            None,
+            ('导出当前页为图片…', lambda: self._export_current_page(self.current_page)),
+        ])
+
+    def _menu_settings(self):
+        return build([
+            ('转换后端…', self._open_backend_dialog, accel_label('Ctrl+,')),
+        ])
+
+    def _menu_help(self):
+        return build([
+            ('快捷键', self._show_shortcuts, accel_label('Ctrl+/')),
+            ('关于本应用', self._show_about),
+        ])
 
     def _paint_dirty(self):
         self._dirty_dot.delete('all')
@@ -218,7 +266,6 @@ class MainWindow:
             self._paned.pack_forget()
             self.empty_state.pack(fill='both', expand=True)
             self._save_button.configure_state(False)
-            self._insert_button.configure_state(False)
             self._refresh_undo_buttons()
         else:
             self.empty_state.pack_forget()
@@ -226,7 +273,6 @@ class MainWindow:
             self.root.update_idletasks()
             self._set_rail_width(self._paned)
             self._save_button.configure_state(True)
-            self._insert_button.configure_state(True)
 
     def _set_rail_width(self, paned, width=280):
         try:

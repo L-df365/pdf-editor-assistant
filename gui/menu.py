@@ -151,30 +151,34 @@ class MenuPopover:
             else:
                 rows.append(('item', item, ROW_HEIGHT))
         total = sum(size for _, _, size in rows)
-        width = 236
+        width = self._width = 236
 
         # 卡片背景：抗锯齿圆角 + 柔和投影（Canvas 的 pieslice 是硬边）
-        pad = self._pad = 7
+        # pad 是投影留白：卡片本体在 (pad, pad)，菜单内容跟着偏移 pad
+        pad = self._pad = 6
         self._canvas.configure(width=width + pad * 2, height=total + pad * 2)
         self._card_photo = rounded_photo(
             width, total, CORNER, PAPER, LINE, 1, shadow=True,
-            root=self.parent)
-        self._canvas.create_image(pad, pad, image=self._card_photo,
+            root=self.parent, pad=pad)
+        self._canvas.create_image(0, 0, image=self._card_photo,
                                   anchor='nw', tags='card')
 
         has_icon = any(getattr(item, 'icon', '') for item in self.items)
         self._label_x = LABEL_X if has_icon else PADDING_X + 2
 
-        y = 0
+        # 内容相对卡片左边缘偏移 pad（卡片本体在图里的 (pad, pad)）
+        self._ox = pad
+        y = pad
         self._rows = []
         for kind, item, size in rows:
             if kind == 'separator':
-                self._canvas.create_line(PADDING_X, y + 4, width - PADDING_X,
+                self._canvas.create_line(PADDING_X + pad, y + 4,
+                                         width - PADDING_X + pad,
                                          y + 4, fill=LINE, tags='text')
             elif kind == 'label':
                 self._canvas.create_text(
-                    PADDING_X, y + size / 2, text=item.label, anchor='w',
-                    fill=INK_3, font=font('meta'), tags='text')
+                    PADDING_X + pad, y + size / 2, text=item.label,
+                    anchor='w', fill=INK_3, font=font('meta'), tags='text')
             else:
                 self._draw_item(item, y, width, size)
                 self._rows.append((item, y, size))
@@ -194,18 +198,19 @@ class MenuPopover:
         color = DANGER if item.danger else INK
         if not item.enabled:
             color = INK_3
+        ox = getattr(self, '_ox', 0)
         if item.icon:
             self._canvas.create_text(
-                ICON_X, y + size / 2, text=item.icon, anchor='w',
+                ICON_X + ox, y + size / 2, text=item.icon, anchor='w',
                 fill=ACCENT if item.checked else (INK_3 if not item.enabled
                                                  else INK_2),
                 font=font('body'), tags='text')
         self._canvas.create_text(
-            self._label_x, y + size / 2, text=item.label, anchor='w',
+            self._label_x + ox, y + size / 2, text=item.label, anchor='w',
             fill=color, font=font('body'), tags='text')
         if item.accelerator:
             self._canvas.create_text(
-                width - PADDING_X, y + size / 2, text=item.accelerator,
+                width - PADDING_X + ox, y + size / 2, text=item.accelerator,
                 anchor='e', fill=INK_3, font=font('num'), tags='text')
 
     # -- 交互 ----------------------------------------------------------
@@ -229,10 +234,9 @@ class MenuPopover:
             self.active = -1
             return
         tint = DANGER_TINT if item.danger else ACCENT_TINT
-        pad = getattr(self, '_pad', 7)
+        pad = getattr(self, '_pad', 6)
         self._hover_photo = rounded_photo(
-            max(self._canvas.winfo_width() - pad * 2 - 6, 8), size - 2, 5,
-            tint, root=self.parent)
+            max(self._width - 6, 8), size - 2, 5, tint, root=self.parent)
         self._canvas.create_image(pad + 3, top + 1, image=self._hover_photo,
                                   anchor='nw', tags='hover')
         self._canvas.tag_lower('hover', 'text')
@@ -281,15 +285,25 @@ class MenuPopover:
         if not item.enabled:
             return
         tint = DANGER_TINT if item.danger else ACCENT_TINT
-        pad = getattr(self, '_pad', 7)
+        pad = getattr(self, '_pad', 6)
         self._hover_photo = rounded_photo(
-            max(self._canvas.winfo_width() - pad * 2 - 6, 8), size - 2, 5,
-            tint, root=self.parent)
+            max(self._width - 6, 8), size - 2, 5, tint, root=self.parent)
         self._canvas.create_image(pad + 3, top + 1, image=self._hover_photo,
                                   anchor='nw', tags='hover')
         self._canvas.tag_lower('hover', 'text')
         # 悬停底色必须压在文字下面，否则文字会被盖掉
         self._canvas.tag_lower('hover', 'text')
+
+
+def accel_label(spec):
+    """把 'Ctrl+Shift+Z' 规整成显示用的顺序。"""
+    if not spec:
+        return ''
+    parts = spec.split('+')
+    order = ('Ctrl', 'Alt', 'Shift')
+    mods = [p for p in order if p in parts]
+    key = parts[-1] if parts else spec
+    return '+'.join(mods + [key]) if mods else key
 
 
 def build(items):

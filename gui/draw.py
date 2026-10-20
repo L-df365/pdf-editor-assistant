@@ -54,7 +54,7 @@ def drop_shadow(canvas, x0, y0, x1, y1, r, offset=3, tags=()):
 # --------------------------------------------------------------------------
 
 def rounded_image(width, height, radius, fill=None, outline=None,
-                  outline_width=1, shadow=False, root=None):
+                  outline_width=1, shadow=False, root=None, pad=0):
     """渲染一张抗锯齿的圆角矩形。
 
     Canvas 的 pieslice 画出来是硬边（锯齿明显），
@@ -71,7 +71,9 @@ def rounded_image(width, height, radius, fill=None, outline=None,
             scale = max(int(round(dpi / 72.0)), 1) * 2
         except Exception:
             scale = 3
-    pad = 6 if shadow else 0
+    # pad 是投影需要的留白：卡片本体画在图的 (pad, pad) 处，
+    # 调用方要按这个偏移摆放内容，否则圆角和内容会错位。
+    pad = max(int(pad), 0)
     w = max(int(width) + pad * 2, 1)
     h = max(int(height) + pad * 2, 1)
     img = Image.new('RGBA', (w * scale, h * scale), (0, 0, 0, 0))
@@ -98,10 +100,13 @@ def rounded_image(width, height, radius, fill=None, outline=None,
 
 
 def rounded_photo(width, height, radius, fill=None, outline=None,
-                  outline_width=1, shadow=False, root=None):
-    """rounded_image 的 Tk 版本（返回 PhotoImage）。"""
+                  outline_width=1, shadow=False, root=None, pad=0):
+    """rounded_image 的 Tk 版本（返回 PhotoImage）。
+
+    带 shadow 时图像比卡片大 pad*2，卡片位于 (pad, pad)。
+    """
     from PIL import ImageTk
 
     image = rounded_image(width, height, radius, fill, outline,
-                          outline_width, shadow, root)
+                          outline_width, shadow, root, pad)
     return ImageTk.PhotoImage(image)
