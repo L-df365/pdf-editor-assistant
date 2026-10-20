@@ -40,7 +40,7 @@ def toast(parent, message, kind='info', duration=3500):
     width = win.winfo_reqwidth()
     height = win.winfo_reqheight()
     x = parent.winfo_rootx() + parent.winfo_width() - width - 24
-    y = parent.winfo_rooty() + parent.winfo_height() - height - 64
+    y = parent.winfo_rooty() + parent.winfo_height() - height - 78
     win.geometry('+{}+{}'.format(x, y))
 
     def slide(step=0):
