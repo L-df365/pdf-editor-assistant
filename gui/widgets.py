@@ -35,6 +35,45 @@ def bg_of(parent, fallback=PAPER):
         return fallback
 
 
+# --------------------------------------------------------------------------
+# 字体度量缓存
+#
+# font.metrics() / font.measure() 每调一次都要问一遍字体服务，单次 3~4ms。
+# 一个按钮要量三四次，二十几个按钮就是几百毫秒 —— 启动明显发顿。
+# 字体规格和文字都是有限的，缓存住即可。
+# --------------------------------------------------------------------------
+
+_FONT_CACHE = {}
+_METRIC_CACHE = {}
+_WIDTH_CACHE = {}
+
+
+def _font_object(spec):
+    obj = _FONT_CACHE.get(spec)
+    if obj is None:
+        obj = tkfont.Font(font=spec)
+        _FONT_CACHE[spec] = obj
+    return obj
+
+
+def font_metric(spec, kind):
+    key = (spec, kind)
+    value = _METRIC_CACHE.get(key)
+    if value is None:
+        value = _font_object(spec).metrics(kind)
+        _METRIC_CACHE[key] = value
+    return value
+
+
+def text_width(spec, text):
+    key = (spec, text)
+    value = _WIDTH_CACHE.get(key)
+    if value is None:
+        value = _font_object(spec).measure(text)
+        _WIDTH_CACHE[key] = value
+    return value
+
+
 class FlatButton(tk.Canvas):
     """圆角按钮。"""
 
@@ -51,8 +90,10 @@ class FlatButton(tk.Canvas):
         self._pressed = False
         self._focus = False
         self._width = width
-        self._font = tkfont.Font(font=font('body'))
-        self._icon_font = tkfont.Font(font=font('body', 'bold'))
+        self._font_spec = font('body')
+        self._icon_font_spec = font('body', 'bold')
+        self._font = tkfont.Font(font=self._font_spec)
+        self._icon_font = tkfont.Font(font=self._icon_font_spec)
         self.bind('<Configure>', lambda e: self._redraw())
         self.bind('<Enter>', self._on_enter)
         self.bind('<Leave>', self._on_leave)
@@ -126,16 +167,18 @@ class FlatButton(tk.Canvas):
     # -- 绘制 ----------------------------------------------------------
 
     def _measure(self):
-        text_w = self._font.measure(self._text) if self._text else 0
-        icon_w = self._icon_font.measure(self._icon) if self._icon else 0
+        text_w = (text_width(self._font_spec, self._text)
+                  if self._text else 0)
+        icon_w = (text_width(self._icon_font_spec, self._icon)
+                  if self._icon else 0)
         gap = 5 if (icon_w and text_w) else 0
         width = text_w + icon_w + gap + PAD_X * 2
         if self._width:
             width = max(self._width, width)
         # 用 ascent+descent 而不是 linespace：中日韩字体的行高很大，
         # 直接用 linespace 会让按钮看起来又高又空。
-        text_h = (self._font.metrics('ascent')
-                  + self._font.metrics('descent'))
+        text_h = (font_metric(self._font_spec, 'ascent')
+                  + font_metric(self._font_spec, 'descent'))
         # 中日韩字体的字面框偏大，封顶后按钮更紧凑
         height = max(min(int(text_h), 18), 16) + PAD_Y * 2
         return int(width), int(height)

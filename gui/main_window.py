@@ -57,6 +57,10 @@ class MainWindow:
         self._install_log = []
         self._tasks = queue.Queue()
         self._pending_paths = []
+        self._rail_width = 280
+        self._rail_user_set = False
+        self._rail_ready = False
+        self._rail_last = None
 
         if not os.environ.get('PDF_EDIT_BACKEND'):
             saved = load_backend()
@@ -237,6 +241,9 @@ class MainWindow:
         self._paned_pack = dict(fill='both', expand=True)
 
         left_frame = ttk.Frame(paned, width=268)
+        # 宽度固定下来：ttk 的分栏会按"子控件的请求宽度"重新分配，
+        # 轨道内容一窄，整栏就被压回去（打开文件时界面横向跳一下的元凶）。
+        left_frame.pack_propagate(False)
         self._left_frame = left_frame
         self.thumb_panel = ThumbnailPanel(
             left_frame,
@@ -247,14 +254,20 @@ class MainWindow:
             on_insert_after=self._on_insert_after,
         )
         self.thumb_panel.pack(fill='both', expand=True)
+        self.thumb_panel.load_document(None)
         paned.add(left_frame, weight=0)
         self._paned = paned
-        self.root.after(60, lambda: self._set_rail_width(paned))
-        self.root.after(600, lambda: self._set_rail_width(paned))
+        # 拖动分栏时左栏宽度会变，用它来发现"用户自己拖过了"
+        left_frame.bind('<Configure>', self._watch_rail)
+        # 宽度只在启动时定一次，之后由用户自己拖
+        self.root.after(60, lambda: self._watch_rail())
+        self.root.after(800, lambda: self._settle_rail())
 
         right_frame = ttk.Frame(paned)
+        # 空状态住在预览这一格里：这样「打开文件」只是把内容换掉，
+        # 不会像整屏浮层那样让预览区宽度突然翻一倍。
         self.empty_state = EmptyState(
-            self.root, on_open=self.open_pdf,
+            right_frame, on_open=self.open_pdf,
             on_insert=self.insert_file_dialog)
         self.preview = PreviewPanel(
             right_frame,
@@ -269,25 +282,57 @@ class MainWindow:
         self._show_empty(True)
 
     def _show_empty(self, empty):
-        """没有文档时整屏显示空状态，有文档时显示页面轨与预览。"""
+        """没有文档时预览区显示空状态，有文档时显示页面。
+
+        页面轨和预览区始终在同一个位置：切换只换内容，不动分栏宽度，
+        否则打开文件的一瞬整块界面会横向跳一下。
+        """
         if empty:
-            self._paned.pack_forget()
+            self.preview.pack_forget()
             self.empty_state.pack(fill='both', expand=True)
             self._save_button.configure_state(False)
             self._refresh_undo_buttons()
         else:
             self.empty_state.pack_forget()
-            self._paned.pack(**self._paned_pack)
-            self.root.update_idletasks()
-            self._set_rail_width(self._paned)
+            self.preview.pack(fill='both', expand=True)
             self._save_button.configure_state(True)
 
-    def _set_rail_width(self, paned, width=280):
+    def _set_rail_width(self, paned, width=None):
+        """设定页面轨宽度。"""
+        width = self._rail_width if width is None else width
         try:
-            if abs(paned.sashpos(0) - width) > 8:
+            if abs(paned.sashpos(0) - width) > 1:
                 paned.sashpos(0, width)
         except tk.TclError:
             pass
+
+    def _watch_rail(self, event=None):
+        """守住页面轨宽度。
+
+        启动时定到 280px；用户自己拖过之后就听用户的 —— 每打开一个文件
+        就把宽度拽回去，看着像界面横向跳了一下。
+        """
+        paned = self._paned
+        if self._rail_user_set:
+            return
+        try:
+            current = paned.sashpos(0)
+        except tk.TclError:
+            return
+        if (self._rail_ready and self._rail_last is not None
+                and abs(current - self._rail_last) > 2):
+            self._rail_user_set = True
+            return
+        self._set_rail_width(paned)
+        try:
+            self._rail_last = paned.sashpos(0)
+        except tk.TclError:
+            pass
+
+    def _settle_rail(self):
+        """初始布局稳定之后，再开始留意用户有没有拖过分栏。"""
+        self._watch_rail()
+        self._rail_ready = True
 
     def _build_statusbar(self):
         bar = ttk.Frame(self.root, style='Surface.TFrame')

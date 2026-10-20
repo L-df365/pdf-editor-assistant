@@ -263,6 +263,31 @@ def run(app):
         sheet.destroy()
         pump(app, 0.2)
 
+    @step
+    def s11_layout_stable():
+        """打开文件不该让界面横向跳一下。
+
+        - 空状态和文档状态必须占同一块地方（预览区宽度不变）
+        - 用户自己拖过的分栏宽度，重新打开文件也不能被拽回去
+        """
+        app._show_empty(True)
+        pump(app, 0.3)
+        empty_w = app.empty_state.frame.winfo_width()
+        app._show_empty(False)
+        pump(app, 0.3)
+        loaded_w = app.preview.frame.winfo_width()
+        check('打开文件时预览区宽度不变', abs(empty_w - loaded_w) <= 2,
+              '空={} 载入={}'.format(empty_w, loaded_w))
+
+        app._paned.sashpos(0, 360)
+        pump(app, 0.3)
+        dragged = app._paned.sashpos(0)
+        app.open_file(PDF)
+        pump(app, 0.5)
+        check('重新打开文件不改变分栏宽度',
+              abs(app._paned.sashpos(0) - dragged) <= 2,
+              '{} -> {}'.format(dragged, app._paned.sashpos(0)))
+
     def stepper():
         if not steps:
             print('\n===== 结果 =====')

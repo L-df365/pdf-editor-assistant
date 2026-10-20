@@ -3,8 +3,8 @@ from tkinter import ttk
 
 from gui.menu import MenuPopover, build
 from gui.widgets import RoundedCard
-from gui.theme import (ACCENT, ACCENT_TINT, BG, INK_2, LINE, MARKER, PAPER,
-                        SURFACE, font)
+from gui.theme import (ACCENT, ACCENT_TINT, BG, INK_2, INK_3, LINE, MARKER,
+                        PAPER, SURFACE, font)
 
 
 class ThumbnailPanel:
@@ -52,6 +52,10 @@ class ThumbnailPanel:
             canvas_frame, orient='vertical', command=self.canvas.yview,
             )
         self.inner = tk.Frame(self.canvas, bg=SURFACE)
+        # 空轨提示：直接挂在画布上并居中，不要跟着内容滚动
+        self.hint = tk.Label(self.canvas, text='打开文档后\n这里显示页样',
+                             bg=SURFACE, fg=INK_3, font=font('meta'),
+                             justify='center')
 
         self.inner.bind('<Configure>', self._on_inner_configure)
         self.canvas.create_window((0, 0), window=self.inner, anchor='nw',
@@ -205,8 +209,12 @@ class ThumbnailPanel:
         self.selected = None
 
         if not self.doc or self.doc.page_count == 0:
+            # 没有文档时页面轨是空的，给一句居中的提示，别像没做完
+            self.hint.place(relx=0.5, rely=0.42, anchor='center')
+            self.canvas.configure(scrollregion=self.canvas.bbox('all'))
             return
 
+        self.hint.place_forget()
         for i in range(self.doc.page_count):
             self._add_card(i)
         self._relayout()
