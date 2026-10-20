@@ -3,13 +3,15 @@ import queue
 import sys
 import webbrowser
 import tkinter as tk
-from tkinter import ttk, filedialog, messagebox
+from tkinter import ttk, filedialog
 import threading
 
 from core.backends import installer
 from core.pdf_document import PDFDocument
 from core.settings import load_backend, save_backend
 from gui.backend_dialog import BackendDialog
+from gui.feedback import ConfirmPanel, ErrorPanel, InfoPanel, toast
+from gui.menu import ContextMenu, PreviewMenu, add_group, add_item, style_menu
 from gui.theme import (ACCENT, INK_2, INK_3, MARKER, OK, SURFACE,
                         font, init_theme)
 from gui.thumbnail_panel import ThumbnailPanel
@@ -82,36 +84,98 @@ class MainWindow:
         self.root.after(250, self._check_backends_on_startup)
 
     def _build_menu(self):
-        menubar = tk.Menu(self.root)
+        menubar = style_menu(tk.Menu(self.root))
+        menubar.configure(tearoff=0)
 
         file_menu = tk.Menu(menubar, tearoff=0)
-        file_menu.add_command(label='打开 PDF  (Ctrl+O)',
-                              command=self.open_pdf, accelerator='Ctrl+O')
-        file_menu.add_command(label='保存  (Ctrl+S)',
-                              command=self.save_pdf, accelerator='Ctrl+S')
-        file_menu.add_command(label='另存为  (Ctrl+Shift+S)',
-                              command=self.save_as, accelerator='Ctrl+Shift+S')
-        file_menu.add_separator()
-        file_menu.add_command(label='退出', command=self._on_close)
+        add_item(file_menu, '打开 PDF…', self.open_pdf, 'Ctrl+O')
+        add_item(file_menu, '打开最近文件…', self._open_recent, 'Ctrl+Shift+O',
+                 enabled=bool(self._recent_files()))
+        add_group(file_menu)
+        add_item(file_menu, '保存', self.save_pdf, 'Ctrl+S')
+        add_item(file_menu, '另存为…', self.save_as, 'Ctrl+Shift+S')
+        add_group(file_menu)
+        add_item(file_menu, '页面信息…', self._show_page_info, 'Ctrl+Shift+I')
+        add_group(file_menu)
+        add_item(file_menu, '退出', self._on_close, 'Ctrl+Q')
         menubar.add_cascade(label='文件', menu=file_menu)
 
         edit_menu = tk.Menu(menubar, tearoff=0)
-        edit_menu.add_command(
-            label='插入文件到末尾',
-            command=lambda: self.insert_file_at(self.doc.page_count))
+        add_item(edit_menu, '在当前页后插入文件…', self.insert_file_dialog,
+                 'Ctrl+I')
+        add_group(edit_menu)
+        add_item(edit_menu, '逆时针旋转 90°',
+                 lambda: self.rotate_page(-90), 'Ctrl+Shift+R')
+        add_item(edit_menu, '顺时针旋转 90°',
+                 lambda: self.rotate_page(90), 'Ctrl+R')
+        add_group(edit_menu)
+        add_item(edit_menu, '删除当前页', self.delete_current_page, 'Delete')
+        add_group(edit_menu)
+        add_item(edit_menu, '移到开头',
+                 lambda: self._move_current_page(0), 'Ctrl+Shift+Up')
+        add_item(edit_menu, '移到结尾',
+                 lambda: self._move_current_page(-1), 'Ctrl+Shift+Down')
         menubar.add_cascade(label='编辑', menu=edit_menu)
 
+        view_menu = tk.Menu(menubar, tearoff=0)
+        add_item(view_menu, '适应页面', lambda: self.preview.set_zoom('fit'),
+                 'Ctrl+0')
+        add_item(view_menu, '实际大小 100%',
+                 lambda: self.preview.set_zoom(1.0), 'Ctrl+1')
+        add_item(view_menu, '放大 200%', lambda: self.preview.set_zoom(2.0),
+                 'Ctrl+2')
+        menubar.add_cascade(label='视图', menu=view_menu)
+
         settings_menu = tk.Menu(menubar, tearoff=0)
-        settings_menu.add_command(label='转换后端…',
-                                  command=self._open_backend_dialog)
+        add_item(settings_menu, '转换后端…', self._open_backend_dialog, 'Ctrl+,')
         menubar.add_cascade(label='设置', menu=settings_menu)
 
         help_menu = tk.Menu(menubar, tearoff=0)
-        help_menu.add_command(label='关于',
-                              command=self._show_about)
+        add_item(help_menu, '快捷键', self._show_shortcuts, 'Ctrl+/')
+        add_item(help_menu, '关于本应用', self._show_about)
         menubar.add_cascade(label='帮助', menu=help_menu)
 
         self.root.config(menu=menubar)
+        self._menus = {'file': file_menu, 'edit': edit_menu, 'view': view_menu}
+
+    def _open_recent(self):
+        items = self._recent_files()
+        if not items:
+            return
+        menu = style_menu(tk.Menu(self.root, tearoff=0))
+        for path in items:
+            add_item(menu, os.path.basename(path),
+                     lambda p=path: self.open_file(p))
+        menu.tk_popup(self.root.winfo_pointerx(),
+                      self.root.winfo_pointery())
+        menu.bind('<FocusOut>', lambda e: menu.unpost())
+
+    def _recent_files(self):
+        return []
+
+    def _show_shortcuts(self):
+        InfoPanel.show(
+            self.root, '快捷键',
+            [('打开 PDF', 'Ctrl+O'),
+             ('保存 / 另存为', 'Ctrl+S / Ctrl+Shift+S'),
+             ('插入文件', 'Ctrl+I'),
+             ('顺时针 / 逆时针旋转', 'Ctrl+R / Ctrl+Shift+R'),
+             ('删除当前页', 'Delete'),
+             ('移到开头 / 结尾', 'Ctrl+Shift+↑ / Ctrl+Shift+↓'),
+             ('适应 / 100% / 200%', 'Ctrl+0 / Ctrl+1 / Ctrl+2'),
+             ('页面信息', 'Ctrl+Shift+I'),
+             ('转换后端', 'Ctrl+,'),
+             ('退出', 'Ctrl+Q')])
+
+    def _move_current_page(self, target):
+        if not self.doc.doc:
+            toast(self.root, '还没有打开文档', 'warn')
+            return
+        count = self.doc.page_count
+        index = 0 if target == 0 else count - 1
+        if self.current_page == index:
+            return
+        self._on_reorder(self.current_page, index)
 
     def _build_document_row(self):
         """文档行：文档名 + 未保存标记 + 保存 + 溢出菜单。"""
@@ -195,7 +259,8 @@ class MainWindow:
             right_frame,
             on_rotate=lambda angle: self.rotate_page(angle),
             on_delete=self.delete_current_page,
-            on_insert=self.insert_file_dialog)
+            on_insert=self.insert_file_dialog,
+            on_export=self._export_current_page)
         self.preview.pack(fill='both', expand=True)
         paned.add(right_frame, weight=1)
 
@@ -288,8 +353,8 @@ class MainWindow:
             label = self.doc.converter.label
         except RuntimeError as exc:
             self._update_status('没有可用的文件转换后端')
-            messagebox.showwarning(
-                '转换后端不可用', str(exc), parent=self.root)
+            toast(self.root, '这个转换后端现在用不了：{}'.format(
+                str(exc).split('\n')[0]), 'warn')
             self._revert_backend()
             return
         self._last_backend = name
@@ -375,12 +440,11 @@ class MainWindow:
     def _prompt_install_backend(self, name, info):
         self._revert_backend()
         reason = info.get('reason') or '本机未安装该后端'
-        message = (
-            '未检测到 {}。\n\n{}\n\n'
-            '是否现在下载并安装？\n'
-            '安装完成后需要重启应用。'.format(info['label'], reason))
-        if not messagebox.askyesno(
-                '安装转换后端', message, parent=self.root):
+        if not ConfirmPanel.ask(
+                self.root, '安装 {}'.format(info['label']),
+                '{}\n\n要现在下载并安装吗？装好后需要重启一次应用。'.format(
+                    reason),
+                confirm_text='安装', danger=False):
             return
         self._start_backend_install(name, info['label'])
 
@@ -462,10 +526,11 @@ class MainWindow:
             detail = '\n'.join(self._install_log[-30:])
             if len(detail) > 2000:
                 detail = '...' + detail[-2000:]
-            messagebox.showerror(
-                '安装失败',
-                '{}\n\n{}'.format(error, detail),
-                parent=self.root)
+            ErrorPanel.show(
+                self.root, '安装失败',
+                '后端没能装上。可以在「设置 → 转换后端」里重试，'
+                '或者改用另一个后端。',
+                detail='{}\n\n{}'.format(error, detail))
             self._update_status('后端安装失败')
             if auto:
                 self._show_backend_choice()
@@ -481,23 +546,22 @@ class MainWindow:
                 webbrowser.open(url)
             except Exception:
                 pass
-            messagebox.showinfo(
-                '需要手动安装',
-                '{}\n\n安装完成后请重启应用。'.format(message),
-                parent=self.root)
-            if messagebox.askyesno(
-                    '重启应用',
-                    '已完成手动安装？是否立即重启应用？',
-                    parent=self.root):
+            InfoPanel.show(
+                self.root, '需要手动安装',
+                [('说明', message)], footnote='装好之后重启应用即可生效。')
+            if ConfirmPanel.ask(
+                    self.root, '重启应用',
+                    '已经装好了吗？现在重启就能用上这个后端。',
+                    confirm_text='重启', danger=False):
                 self._restart_app(name)
             else:
                 self._update_status('安装完成后重启应用生效')
             return
 
-        if messagebox.askyesno(
-                '安装完成',
-                '{}\n\n是否立即重启应用以启用该后端？'.format(message),
-                parent=self.root):
+        if ConfirmPanel.ask(
+                self.root, '安装完成',
+                '{}\n\n现在重启应用就能用上这个后端。'.format(message),
+                confirm_text='重启', danger=False):
             self._restart_app(name)
         else:
             self._update_status('安装完成，重启应用后生效')
@@ -509,10 +573,10 @@ class MainWindow:
 
     def _restart_app(self, backend=None):
         if self.doc.is_modified:
-            if not messagebox.askyesno(
-                    '未保存的修改',
-                    '当前文档有未保存的修改，重启会丢失。是否继续？',
-                    parent=self.root):
+            if not ConfirmPanel.ask(
+                    self.root, '还有没保存的修改',
+                    '重启会丢掉这些修改。',
+                    confirm_text='仍然重启', danger=True):
                 return
         backend = backend or self.doc.converter.requested_name
         entry = os.path.abspath(
@@ -523,28 +587,48 @@ class MainWindow:
         try:
             os.execv(sys.executable, args)
         except OSError as exc:
-            messagebox.showerror(
-                '重启失败', str(exc), parent=self.root)
+            ErrorPanel.show(self.root, '重启失败',
+                            '应用没能自动重启，手动关掉再打开就行。',
+                            detail=str(exc))
 
     def _on_close(self):
         if self._installing:
-            messagebox.showinfo(
-                '正在安装',
-                '后端安装尚未完成，请稍候。',
-                parent=self.root)
+            toast(self.root, '后端安装还没完成，稍等一下', 'warn')
             return
         if self._converting:
-            messagebox.showinfo(
-                '正在转换',
-                '文件转换尚未完成，请稍候。',
-                parent=self.root)
+            toast(self.root, '文件还在转换中，稍等一下', 'warn')
             return
         self.root.destroy()
 
     def _bind_shortcuts(self):
-        self.root.bind('<Control-o>', lambda e: self.open_pdf())
-        self.root.bind('<Control-s>', lambda e: self.save_pdf())
-        self.root.bind('<Control-Shift-S>', lambda e: self.save_as())
+        bind = self.root.bind
+        bind('<Control-o>', lambda e: self.open_pdf())
+        bind('<Control-O>', lambda e: self.open_pdf())
+        bind('<Control-s>', lambda e: self.save_pdf())
+        bind('<Control-S>', lambda e: self.save_pdf())
+        bind('<Control-Shift-S>', lambda e: self.save_as())
+        bind('<Control-i>', lambda e: self.insert_file_dialog())
+        bind('<Control-I>', lambda e: self.insert_file_dialog())
+        bind('<Control-r>', lambda e: self.rotate_page(90))
+        bind('<Control-R>', lambda e: self.rotate_page(90))
+        bind('<Control-Shift-R>', lambda e: self.rotate_page(-90))
+        bind('<Control-Shift-Up>', lambda e: self._move_current_page(0))
+        bind('<Control-Shift-Down>', lambda e: self._move_current_page(-1))
+        bind('<Control-0>', lambda e: self.preview.set_zoom('fit'))
+        bind('<Control-1>', lambda e: self.preview.set_zoom(1.0))
+        bind('<Control-2>', lambda e: self.preview.set_zoom(2.0))
+        bind('<Control-Shift-I>', lambda e: self._show_page_info())
+        bind('<Control-comma>', lambda e: self._open_backend_dialog())
+        bind('<Control-question>', lambda e: self._show_shortcuts())
+        bind('<Control-q>', lambda e: self._on_close())
+        bind('<Control-Q>', lambda e: self._on_close())
+        bind('<Delete>', self._on_delete_key)
+
+    def _on_delete_key(self, event=None):
+        widget = self.root.focus_get()
+        if isinstance(widget, (tk.Entry, tk.Text, ttk.Entry)):
+            return
+        self.delete_current_page()
 
     def _update_status(self, text):
         self.statusbar.configure(text=text)
@@ -567,9 +651,28 @@ class MainWindow:
             text='{} {}'.format(label, '●' if available else '○'),
             foreground=OK if available else INK_3)
 
+    def _export_current_page(self, page_num):
+        if not self.doc.doc:
+            toast(self.root, '还没有打开文档', 'warn')
+            return
+        path = filedialog.asksaveasfilename(
+            title='导出第 {} 页'.format(page_num + 1),
+            initialdir=HOME_DIR,
+            defaultextension='.png',
+            filetypes=[('PNG 图片', '*.png')])
+        if not path:
+            return
+        try:
+            self.doc.export_page_image(page_num, path)
+        except Exception as e:
+            ErrorPanel.show(self.root, '导出失败',
+                            '这一页没能存成图片。', detail=str(e))
+            return
+        toast(self.root, '已导出第 {} 页'.format(page_num + 1), 'ok')
+
     def _show_page_info(self):
         if not self.doc.doc:
-            messagebox.showinfo('页面信息', '还没有打开文档。')
+            toast(self.root, '还没有打开文档', 'warn')
             return
         try:
             width, height = self.doc.get_page_size(0)
@@ -578,19 +681,21 @@ class MainWindow:
         size = 0
         if self.doc.filepath and os.path.isfile(self.doc.filepath):
             size = os.path.getsize(self.doc.filepath)
-        messagebox.showinfo(
-            '页面信息',
-            '{}\n共 {} 页\n页面尺寸：{:.0f} × {:.0f} pt\n文件大小：{}\n'
-            '转换后端：{}'.format(
-                os.path.basename(self.doc.filepath or '未命名'),
-                self.doc.page_count, width, height,
-                _human_size(size), self._backend_label()))
+        InfoPanel.show(
+            self.root, '页面信息',
+            [('文件', os.path.basename(self.doc.filepath or '未命名')),
+             ('页数', '共 {} 页'.format(self.doc.page_count)),
+             ('页面尺寸', '{:.0f} × {:.0f} pt'.format(width, height)),
+             ('文件大小', _human_size(size)),
+             ('转换后端', self._backend_label())])
 
     def _reload_document(self):
         if not self.doc.filepath:
             return
-        if self.doc.is_modified and not messagebox.askyesno(
-                '重新载入', '当前修改尚未保存，重新载入会丢失这些修改。继续？'):
+        if self.doc.is_modified and not ConfirmPanel.ask(
+                self.root, '重新载入文件',
+                '当前修改还没保存，重新载入会丢掉这些修改。',
+                confirm_text='重新载入'):
             return
         path = self.doc.filepath
         self.open_file(path)
@@ -618,7 +723,10 @@ class MainWindow:
             self._refresh_facts()
             self._update_title()
         except Exception as e:
-            messagebox.showerror('打开失败', str(e))
+            ErrorPanel.show(
+                self.root, '打不开这个文件',
+                '文件可能已被移动，或者不是有效的 PDF。',
+                detail=str(e))
 
     def open_pdf(self):
         path = filedialog.askopenfilename(
@@ -640,7 +748,10 @@ class MainWindow:
             self._update_status('已保存')
             self._update_title()
         except Exception as e:
-            messagebox.showerror('保存失败', str(e))
+            ErrorPanel.show(
+                self.root, '保存失败',
+                '文件可能是只读的，或者所在目录没有写入权限。',
+                detail=str(e))
 
     def save_as(self):
         if not self.doc.doc:
@@ -657,7 +768,10 @@ class MainWindow:
             self._update_status('已保存 {}'.format(os.path.basename(path)))
             self._update_title()
         except Exception as e:
-            messagebox.showerror('保存失败', str(e))
+            ErrorPanel.show(
+                self.root, '保存失败',
+                '文件可能是只读的，或者所在目录没有写入权限。',
+                detail=str(e))
 
     # ---------- 页面操作 ----------
 
@@ -682,14 +796,20 @@ class MainWindow:
             self._show_page(to_pos)
             self._update_title()
         except Exception as e:
-            messagebox.showerror('移动失败', str(e))
+            ErrorPanel.show(self.root, '移动失败',
+                            '这一页没能移动到新的位置。', detail=str(e))
 
     def _on_delete_page(self, page_num):
         if self.doc.page_count <= 1:
-            messagebox.showwarning('提示', '至少保留一页')
+            toast(self.root, '至少要保留一页', 'warn')
             return
-        if not messagebox.askyesno(
-                '确认', f'确定删除第 {page_num + 1} 页？'):
+        total = self.doc.page_count
+        if not ConfirmPanel.ask(
+                self.root,
+                '删除第 {} 页'.format(page_num + 1),
+                '这一页会从文档里移除，{} 页会变成 {} 页。'.format(
+                    total, total - 1),
+                confirm_text='删除'):
             return
         try:
             self.doc.delete_page(page_num)
@@ -698,7 +818,8 @@ class MainWindow:
             self._show_page(new_pos)
             self._update_title()
         except Exception as e:
-            messagebox.showerror('删除失败', str(e))
+            ErrorPanel.show(self.root, '删除失败',
+                            '这一页没能从文档里移除。', detail=str(e))
 
     def _on_rotate_page(self, page_num, angle=90):
         try:
@@ -707,7 +828,8 @@ class MainWindow:
             self._show_page(page_num)
             self._update_title()
         except Exception as e:
-            messagebox.showerror('旋转失败', str(e))
+            ErrorPanel.show(self.root, '旋转失败',
+                            '这一页没能旋转。', detail=str(e))
 
     def rotate_page(self, angle):
         self._on_rotate_page(self.current_page, angle)
@@ -802,7 +924,11 @@ class MainWindow:
         self._converting = False
         self.root.config(cursor='')
         if error:
-            messagebox.showerror('插入失败', str(error))
+            ErrorPanel.show(
+                self.root, '插入失败',
+                '这个文件没能转成页面。如果它正被 WPS 或 Word 打开着，'
+                '关掉之后重试一次。',
+                detail=str(error))
             self._update_status('插入失败')
             return
 
@@ -814,14 +940,13 @@ class MainWindow:
         self._update_status('已插入，共 {} 页'.format(self.doc.page_count))
 
     def _show_about(self):
-        messagebox.showinfo(
-            '关于',
-            'PDF 内嵌编辑助手\n\n'
-            '功能：打开 PDF，在任意位置插入 Word/Excel/图片\n'
-            '自动转换为 PDF 页面，支持拖拽排序\n\n'
-            '转换后端：{}（按需安装，不随应用打包）\n'
-            '技术：Python + PyMuPDF + WPS(pywpsrpc)/LibreOffice'.format(
-                self._backend_label()))
+        InfoPanel.show(
+            self.root, 'PDF 内嵌编辑助手',
+            [('作用', '把 Word、Excel、图片转成页面，插进 PDF 的任意位置'),
+             ('转换后端', '{}（按需安装，不随应用打包）'.format(
+                 self._backend_label())),
+             ('技术', 'Python + PyMuPDF + WPS / LibreOffice')],
+            footnote='页面可以拖拽排序、旋转、删除；改动随时可以撤销保存。')
 
     def run(self):
         self.root.mainloop()

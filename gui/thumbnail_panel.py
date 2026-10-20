@@ -1,6 +1,7 @@
 import tkinter as tk
 from tkinter import ttk
 
+from gui.menu import ContextMenu
 from gui.theme import (ACCENT, ACCENT_TINT, INK_2, LINE, MARKER, PAPER,
                         SURFACE, font)
 
@@ -53,6 +54,12 @@ class ThumbnailPanel:
 
         self.canvas.pack(side='left', fill='both', expand=True)
         self.scrollbar.pack(side='right', fill='y')
+
+        self._context_menu = ContextMenu(
+            self.frame,
+            on_insert=lambda page: self._do_insert_after(page),
+            on_rotate=lambda page, angle: self._do_rotate(page, angle),
+            on_delete=lambda page: self._do_delete(page))
 
         self.canvas.bind('<Configure>', self._on_canvas_resize)
         self.canvas.bind('<Button-1>', self._on_canvas_click)
@@ -343,23 +350,8 @@ class ThumbnailPanel:
     # ------------------------------------------------------------------
 
     def _show_menu(self, event, page_num):
-        menu = tk.Menu(self.frame, tearoff=0)
-        menu.add_command(
-            label='在第 {} 页后插入文件…'.format(page_num + 1),
-            command=lambda: self._do_insert_after(page_num))
-        menu.add_separator()
-        menu.add_command(
-            label='逆时针旋转 90°',
-            command=lambda: self._do_rotate(page_num, -90))
-        menu.add_command(
-            label='顺时针旋转 90°',
-            command=lambda: self._do_rotate(page_num, 90))
-        menu.add_separator()
-        menu.add_command(
-            label='删除第 {} 页'.format(page_num + 1),
-            command=lambda: self._do_delete(page_num))
-        menu.tk_popup(event.x_root, event.y_root)
-        menu.bind('<FocusOut>', lambda e: menu.unpost())
+        self._context_menu.bind_page(page_num)
+        self._context_menu.popup(event)
 
     def _do_insert_after(self, page_num):
         if self.on_insert_after:

@@ -255,6 +255,15 @@ def _configure_styles(style):
                      ('active', ACCENT_TINT)],
          foreground=[('disabled', INK_3), ('active', INK)])
 
+    _set(style, 'Paper.Danger.TButton', background=PAPER, foreground=DANGER,
+         borderwidth=0, relief='flat', focuscolor=ACCENT,
+         padding=(SPACE['sm'], SPACE['xs']), anchor='center',
+         font=font('body'))
+    _map(style, 'Paper.Danger.TButton',
+         background=[('disabled', PAPER), ('pressed', LINE_SOFT),
+                     ('active', ACCENT_TINT)],
+         foreground=[('disabled', INK_3), ('active', DANGER)])
+
     # 分段控件（缩放档位）
     _set(style, 'Segment.TButton', background=SURFACE, foreground=INK_2,
          borderwidth=0, relief='flat', focuscolor=ACCENT,

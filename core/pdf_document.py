@@ -169,6 +169,13 @@ class PDFDocument:
         self.filepath = filepath
         self._modified = False
 
+    def export_page_image(self, page_num, path, dpi=150):
+        """把某一页导出为图片。"""
+        page = self.doc.load_page(page_num)
+        pix = page.get_pixmap(dpi=dpi)
+        pix.save(path)
+        return path
+
     def get_page_at_zoom(self, page_num, zoom):
         """按指定缩放比渲染页面（1.0 ≈ 72dpi）。"""
         page = self.doc.load_page(page_num)

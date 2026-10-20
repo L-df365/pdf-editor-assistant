@@ -1,6 +1,7 @@
 import tkinter as tk
 from tkinter import ttk
 
+from gui.menu import PreviewMenu
 from gui.theme import ACCENT, INK_2, LINE, STAGE, SURFACE, font
 
 #: 缩放档位：(显示名, 取值)
@@ -18,7 +19,7 @@ class PreviewPanel:
     """右侧预览面板：页面预览 + 缩放分段 + 页码计数。"""
 
     def __init__(self, parent, on_rotate=None, on_delete=None,
-                 on_insert=None):
+                 on_insert=None, on_export=None):
         self.frame = ttk.Frame(parent, style='Surface.TFrame')
         self.current_photo = None
         self.zoom = 1.0
@@ -29,6 +30,7 @@ class PreviewPanel:
         self.on_rotate = on_rotate
         self.on_delete = on_delete
         self.on_insert = on_insert
+        self.on_export = on_export
 
         self._build_action_row()
         self._build_canvas()
@@ -78,6 +80,11 @@ class PreviewPanel:
                          lambda e: self.canvas.yview_scroll(-1, 'units'))
         self.canvas.bind('<Button-5>',
                          lambda e: self.canvas.yview_scroll(1, 'units'))
+        self._context_menu = PreviewMenu(
+            self.frame, on_zoom=self.set_zoom,
+            on_insert=self.on_insert, on_export=self.on_export)
+        self.canvas.bind('<Button-3>',
+                         lambda e: self._popup_menu(e))
         self.canvas.bind('<Configure>', self._on_canvas_resize)
         self._canvas_width = 800
         self._canvas_height = 600
@@ -103,6 +110,10 @@ class PreviewPanel:
 
     def pack(self, **kwargs):
         self.frame.pack(**kwargs)
+
+    def _popup_menu(self, event):
+        self._context_menu.bind_page(self._last_page)
+        self._context_menu.popup(event)
 
     # ------------------------------------------------------------------
 
