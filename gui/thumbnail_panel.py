@@ -13,11 +13,12 @@ class ThumbnailPanel:
     列数随宽度自适应，缩略图按可用宽度渲染（不再被裁切）。
     """
 
-    THUMB_HEIGHT = 118     # 目标高度（像素）
+    THUMB_HEIGHT = 118     # 多列时的目标高度（像素）
+    THUMB_HEIGHT_ONE = 190  # 单列时放大：一条只放一个页样，看得清
     CARD_GAP = 10
     INDEX_WIDTH = 30       # 页码列宽
-    TWO_COL_MIN = 250      # 达到此宽度显示两列
-    THREE_COL_MIN = 430
+    TWO_COL_MIN = 360      # 拉宽到这么宽才排两列（默认一列）
+    THREE_COL_MIN = 560
 
     def __init__(self, parent, on_select=None, on_reorder=None,
                  on_delete=None, on_rotate=None, on_insert_after=None):
@@ -85,6 +86,7 @@ class ThumbnailPanel:
         self.frame.pack(**kwargs)
 
     def _on_inner_configure(self, event):
+        self._center_inner()
         self.canvas.configure(scrollregion=self.canvas.bbox('all'))
         self._sync_scrollbar()
 
@@ -138,7 +140,7 @@ class ThumbnailPanel:
 
         for i, card in enumerate(self.cards):
             page = card['page']
-            size = self._thumb_size(page, available)
+            size = self._thumb_size(page, available, cols)
             if changed or self._sizes.get(page) != size:
                 self._sizes[page] = size
                 self._render_thumb(card, size)
@@ -146,9 +148,21 @@ class ThumbnailPanel:
             card['frame'].grid(row=row, column=col, sticky='w',
                                padx=(4 if col == 0 else 0),
                                pady=4)
+        self._center_inner()
         self._sync_scrollbar()
 
-    def _thumb_size(self, page, available):
+    def _center_inner(self):
+        """单列时把整列内容居中：右边空一大块会显得没做完。"""
+        if self._cols != 1:
+            self.canvas.coords('inner', 0, 0)
+            return
+        canvas_w = self.canvas.winfo_width()
+        inner_w = self.inner.winfo_reqwidth()
+        if canvas_w <= 1 or inner_w <= 1:
+            return
+        self.canvas.coords('inner', max(0, (canvas_w - inner_w) // 2), 0)
+
+    def _thumb_size(self, page, available, cols=2):
         """按可用宽度与目标高度共同决定缩略图尺寸（保持比例）。"""
         try:
             page_w, page_h = self.doc.get_page_size(page)
@@ -158,7 +172,8 @@ class ThumbnailPanel:
             page_w, page_h = 612.0, 792.0
         budget = max(available - self.INDEX_WIDTH - 12, 48)
         by_width = budget
-        by_height = self.THUMB_HEIGHT * page_w / page_h
+        height_cap = self.THUMB_HEIGHT_ONE if cols == 1 else self.THUMB_HEIGHT
+        by_height = height_cap * page_w / page_h
         return max(40, int(min(by_width, by_height)))
 
     def _render_thumb(self, card, target_width):
