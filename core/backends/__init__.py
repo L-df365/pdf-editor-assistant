@@ -1,6 +1,5 @@
 import os
 
-from .base import ConversionBackend
 from .libreoffice import LibreOfficeBackend
 from .wps import PyWpsRpcBackend
 
