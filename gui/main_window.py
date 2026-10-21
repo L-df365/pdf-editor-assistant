@@ -48,10 +48,8 @@ class MainWindow:
         self._tasks = queue.Queue()
         self._pending_paths = []
         self._batch_windows = []
-        self._rail_width = 280
-        self._rail_user_set = False
-        self._rail_ready = False
-        self._rail_last = None
+        self._rail_width = 280     # 启动时的页面轨宽度
+        self.RAIL_MIN_WIDTH = 180  # 再窄就没法用了（下限，防止被挤没）
 
         if not os.environ.get('PDF_EDIT_BACKEND'):
             saved = load_backend()
@@ -237,7 +235,8 @@ class MainWindow:
         paned.pack(fill='both', expand=True)
         self._paned_pack = dict(fill='both', expand=True)
 
-        left_frame = ttk.Frame(paned, width=268)
+        # 请求宽度 = 目标宽度：分栏第一次分配时左栏就能拿到该有的宽度
+        left_frame = ttk.Frame(paned, width=280)
         # 宽度固定下来：ttk 的分栏会按"子控件的请求宽度"重新分配，
         # 轨道内容一窄，整栏就被压回去（打开文件时界面横向跳一下的元凶）。
         left_frame.pack_propagate(False)
@@ -254,10 +253,11 @@ class MainWindow:
         self.thumb_panel.load_document(None)
         paned.add(left_frame, weight=0)
         self._paned = paned
-        # 拖动分栏时左栏宽度会变，用它来发现"用户自己拖过了"
+        # 左栏宽度变化时守着下限（分栏重排不会把侧栏挤没）
         left_frame.bind('<Configure>', self._watch_rail)
-        # 宽度只在启动时定一次，之后由用户自己拖
-        self.root.after(60, lambda: self._watch_rail())
+        paned.bind('<Configure>', self._watch_rail)
+        # 宽度只在启动时定一次，之后用户自己拖
+        self.root.after(60, lambda: self._apply_rail_width())
         self.root.after(800, lambda: self._settle_rail())
 
         right_frame = ttk.Frame(paned)
@@ -305,32 +305,52 @@ class MainWindow:
             pass
 
     def _watch_rail(self, event=None):
-        """守住页面轨宽度。
+        """守住页面轨：它不能被分栏挤没。
 
-        启动时定到 280px；用户自己拖过之后就听用户的 —— 每打开一个文件
-        就把宽度拽回去，看着像界面横向跳了一下。
+        ttk 的分栏按子控件的请求宽度重新分配，右边内容一宽、或者分栏位置
+        和实际宽度对不上，左栏就可能被压到 0 —— 表现是"侧边的预览框不见了"。
+
+        注意：**不能**用"分栏位置变了 = 用户拖过"来判断要不要接管：
+        分栏自己重排也会变，一误判就再也不管宽度了（这正是出问题的原因）。
+        现在只有启动时定一次宽度，之后用户拖成什么样都随他。
+        """
+        try:
+            actual = self._left_frame.winfo_width()
+            current = self._paned.sashpos(0)
+        except tk.TclError:
+            return
+        if actual >= self.RAIL_MIN_WIDTH:
+            return                      # 侧栏好好的，不管它
+        if current < self.RAIL_MIN_WIDTH:
+            try:
+                self._paned.sashpos(0, self.RAIL_MIN_WIDTH)
+                # 光改分栏位置不会立刻重排，得让分栏再算一次
+                self._paned.update_idletasks()
+            except tk.TclError:
+                pass
+
+    def _apply_rail_width(self, attempts=0):
+        """把页面轨宽度定到 280。
+
+        必须等分栏真的有宽度再定：窗口还没被窗口管理器摆好的时候，
+        sashpos 会被夹到 0，页面轨就再也拉不回来了（侧栏不见了）。
+        定不上就稍后再试。
         """
         paned = self._paned
-        if self._rail_user_set:
-            return
         try:
-            current = paned.sashpos(0)
+            width = paned.winfo_width()
         except tk.TclError:
             return
-        if (self._rail_ready and self._rail_last is not None
-                and abs(current - self._rail_last) > 2):
-            self._rail_user_set = True
+        if width <= 1:
+            if attempts < 12:
+                self.root.after(150,
+                                lambda: self._apply_rail_width(attempts + 1))
             return
         self._set_rail_width(paned)
-        try:
-            self._rail_last = paned.sashpos(0)
-        except tk.TclError:
-            pass
 
     def _settle_rail(self):
-        """初始布局稳定之后，再开始留意用户有没有拖过分栏。"""
-        self._watch_rail()
-        self._rail_ready = True
+        """初始布局稳定之后，把页面轨宽度定下来（之后不再动它）。"""
+        self._apply_rail_width()
 
     def _build_statusbar(self):
         bar = ttk.Frame(self.root, style='Surface.TFrame')

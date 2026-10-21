@@ -501,6 +501,26 @@ def run(app):
         pump(app, 0.2)
 
     @step
+    def s11b_rail_never_squeezed():
+        """页面轨不能被分栏挤没（用户反馈过"侧边预览框不见了"）。
+
+        - 启动后左栏要有宽度
+        - 分栏位置被压到很窄时，要拉回下限
+        - 分栏自己重排（窗口尺寸变化）也不能把左栏弄没
+        """
+        rail = app._left_frame
+        check('启动后左栏有宽度', rail.winfo_width() >= 180,
+              '左栏宽 {}'.format(rail.winfo_width()))
+        app._paned.sashpos(0, 20)
+        pump(app, 0.3)
+        check('左栏被压窄后拉回下限', rail.winfo_width() >= 180,
+              '左栏宽 {}'.format(rail.winfo_width()))
+        app._paned.sashpos(0, 280)
+        pump(app, 0.3)
+        check('宽度还能调回 280', rail.winfo_width() >= 180,
+              '左栏宽 {}'.format(rail.winfo_width()))
+
+    @step
     def s11_layout_stable():
         """打开文件不该让界面横向跳一下。
 

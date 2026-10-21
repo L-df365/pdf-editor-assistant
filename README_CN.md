@@ -245,7 +245,7 @@ pdf-editor-assistant/
 │   ├── design-system.md # 设计系统
 │   ├── print-plan.md    # 打印功能方案
 │   └── ui/              # 界面截图
-└── tools/uitest.py      # 界面自测：合成真实鼠标事件（81 项）
+└── tools/uitest.py      # 界面自测：合成真实鼠标事件（84 项）
 ```
 
 ---
@@ -283,7 +283,7 @@ pdf-editor-assistant/
 ## 开发
 
 ```bash
-xvfb-run -a python3 tools/uitest.py      # 界面自测（81 项，不需要显示器）
+xvfb-run -a python3 tools/uitest.py      # 界面自测（84 项，不需要显示器）
 ```
 
 自测用合成鼠标事件走真实链路（点击 / 拖拽 / 悬停 / 右键），不碰真打印机
