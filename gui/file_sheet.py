@@ -45,18 +45,27 @@ class FileSheet(Sheet):
                  title=None):
         self.mode = mode
         self.multi = mode == 'insert'
+        self.folder_mode = mode == 'folder'     # 选文件夹（批量打印用）
         self.current_path = current_path
         self.on_browse = on_browse
         self.on_confirm = on_confirm
         self.cwd = os.path.dirname(os.path.abspath(current_path)) \
             if current_path else HOME
+        if self.folder_mode and current_path and os.path.isdir(current_path):
+            self.cwd = os.path.abspath(current_path)
         self.directory = self.cwd
         self.selected = set()
         self.rows = []
         self._index = {}      # 路径 → 行数据（点选时查）
         self._anchor = None   # Shift 连选的锚点
+        self._up_row = None   # 「上级目录」那一行
 
-        title = title or ('插入文件' if self.multi else '打开 PDF')
+        if title:
+            pass
+        elif self.folder_mode:
+            title = '选择文件夹'
+        else:
+            title = '插入文件' if self.multi else '打开 PDF'
         super().__init__(parent, title)
 
         self._build_body()
@@ -136,7 +145,9 @@ class FileSheet(Sheet):
         # wraplength 是必须的：文件名很长时，标签会按整行宽度去要空间，
         # 把左边的文件列表挤没了（列宽由控件的申请宽度决定）。
         # 固定折行宽度后，这一列最多占这么宽，剩下的都留给列表。
-        self.info_label = tk.Label(right, text='在列表里选一个文件\n这里会显示它的信息',
+        hint = ('选一个文件夹\n这里会显示它的位置' if self.folder_mode
+                else '在列表里选一个文件\n这里会显示它的信息')
+        self.info_label = tk.Label(right, text=hint,
                                    bg=PAPER, fg=INK_2, font=font('meta'),
                                    justify='left', anchor='w',
                                    wraplength=INFO_WIDTH)
@@ -151,8 +162,10 @@ class FileSheet(Sheet):
 
         top = ttk.Frame(foot, style='Paper.TFrame')
         top.pack(fill='x', pady=(0, 8))
-        FlatButton(top, '浏览全部文件…', command=self._browse,
-                   variant='secondary', bg=PAPER).pack(side='left')
+        if not self.folder_mode:
+            # 选文件夹时不需要"浏览全部文件"（自己就是那个对话框）
+            FlatButton(top, '浏览全部文件…', command=self._browse,
+                       variant='secondary', bg=PAPER).pack(side='left')
 
         entry = ttk.Entry(top, font=font('body'))
         entry.pack(side='left', padx=(10, 0), fill='x', expand=True)
@@ -173,7 +186,10 @@ class FileSheet(Sheet):
         self.confirm_button = FlatButton(
             bottom, confirm_text, command=self._confirm, variant='primary',
             bg=PAPER)
-        self.confirm_button.configure_state(False)
+        if self.folder_mode:
+            self.confirm_button.configure_state(True)
+        else:
+            self.confirm_button.configure_state(False)
         self.confirm_button.pack(side='right')
         FlatButton(bottom, '取消', command=self._cancel, variant='ghost',
                    bg=PAPER).pack(side='right', padx=(0, 8))
@@ -183,12 +199,16 @@ class FileSheet(Sheet):
     # ------------------------------------------------------------------
 
     def _locations(self):
-        """常用位置：当前文档所在文件夹固定在最上面。"""
+        """常用位置：当前目录固定在最上面。"""
         places = []
-        if self.current_path:
+        if self.folder_mode:
+            places.append(('当前文件夹', self.cwd))
+        elif self.current_path:
             folder = os.path.dirname(os.path.abspath(self.current_path))
             places.append(('当前文档所在文件夹', folder))
-        places.append(('最近使用', RECENT))
+        if not self.folder_mode:
+            # 选文件夹时不列"最近使用"（那是文件列表，不是目录）
+            places.append(('最近使用', RECENT))
         for label, path in (('桌面', os.path.join(HOME, 'Desktop')),
                             ('下载', os.path.join(HOME, 'Downloads')),
                             ('主目录', HOME)):
@@ -273,6 +293,8 @@ class FileSheet(Sheet):
                     'size': '', 'dir': True, 'mtime_raw': 0,
                     'size_raw': 0})
                 continue
+            if self.folder_mode:
+                continue    # 选文件夹时只列目录
             if not self._allowed(full):
                 continue
             try:
@@ -286,8 +308,22 @@ class FileSheet(Sheet):
                 'size': formats.human_size(stat.st_size),
                 'dir': False, 'mtime_raw': stat.st_mtime,
                 'size_raw': stat.st_size})
+        if self.folder_mode:
+            self._add_up_row(path)
         self._sort_by('name')
         self._update_selection_label()
+
+    def _add_up_row(self, path):
+        """选文件夹时列表顶上放一行「上级目录」。"""
+        parent = os.path.dirname(path.rstrip(os.sep))
+        if not parent or parent == path:
+            self._up_row = None
+            return
+        self._up_row = parent
+        self.rows.insert(0, {
+            'path': parent, 'name': '..（上级目录）', 'type': '文件夹',
+            'mtime': '', 'size': '', 'dir': True, 'mtime_raw': 0,
+            'size_raw': 0})
 
     def _sort_by(self, key):
         self._sort_key = key
@@ -300,6 +336,9 @@ class FileSheet(Sheet):
         elif key == 'type':
             self.rows.sort(key=lambda r: (not r['dir'], r['type'],
                                           r['name'].lower()))
+        if self.folder_mode and self._up_row:
+            # 「上级目录」永远排第一
+            self.rows.sort(key=lambda r: r['path'] != self._up_row)
         self._index = {row['path']: row for row in self.rows}
         # 重建表格会清掉选择，先记下来，插完再选回去
         keep = set(self.tree.selection())
@@ -334,6 +373,17 @@ class FileSheet(Sheet):
             return
         row = self._row(item)
         if row is None:
+            return
+        if self.folder_mode:
+            # 选文件夹：点「上级目录」直接往上走，其它目录先选中
+            if self._up_row and item == self._up_row:
+                self._load_directory(self._up_row)
+                return
+            self.selected = {item}
+            self.tree.selection_set(item)
+            self._refresh_marks()
+            self._update_selection_label()
+            self._update_info(item)
             return
         if row['dir']:
             self.tree.selection_set(item)
@@ -414,6 +464,11 @@ class FileSheet(Sheet):
         if not item:
             return
         row = self._row(item)
+        if self.folder_mode:
+            # 双击目录 = 进入它
+            if row and row['dir']:
+                self._load_directory(row['path'])
+            return
         if row and row['dir']:
             self._load_directory(row['path'])
             return
@@ -443,7 +498,11 @@ class FileSheet(Sheet):
             self.selection_label.set_text('')
             if self.selection_label.winfo_ismapped():
                 self.selection_label.pack_forget()
-        self.confirm_button.configure_state(bool(count))
+        if self.folder_mode:
+            # 选文件夹：当前所在目录就是答案，随时能确定
+            self.confirm_button.configure_state(True)
+        else:
+            self.confirm_button.configure_state(bool(count))
 
     def _update_info(self, path):
         """右栏显示选中文件的信息（不渲染缩略图）。
@@ -452,6 +511,10 @@ class FileSheet(Sheet):
         """
         row = self._row(path)
         if row is None:
+            return
+        if self.folder_mode:
+            self.info_label.configure(text='{}\n{}'.format(
+                os.path.basename(path.rstrip(os.sep)) or path, path))
             return
         self.info_label.configure(
             text='{}\n{}\n{}\n{}'.format(row['name'], row['type'],
@@ -519,6 +582,17 @@ class FileSheet(Sheet):
         self._update_info(path)
 
     def _confirm(self):
+        if self.folder_mode:
+            # 选文件夹：选中哪个就是哪个，没选就是当前所在目录
+            path = (sorted(self.selected)[0] if self.selected
+                    else self.directory)
+            if not os.path.isdir(path):
+                return
+            self.result = path
+            if self.on_confirm:
+                self.on_confirm(path)
+            self.destroy()
+            return
         paths = sorted(self.selected)
         if not paths:
             return

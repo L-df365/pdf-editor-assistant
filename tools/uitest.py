@@ -432,6 +432,51 @@ def run(app):
         pump(app, 0.2)
 
     @step
+    def s7d_folder_picker():
+        """选文件夹用的也是自己画的面板：只列目录、有上级目录、能进能退。"""
+        from gui.file_sheet import FileSheet
+        sheet = FileSheet(app.root, mode='folder', current_path=FIXTURES,
+                          confirm_text='选择此文件夹')
+        sheet._place(app.root)
+        pump(app, 0.3)
+        check('文件夹面板能打开', sheet.winfo_ismapped(), '没打开')
+        names = [sheet._row(i)['name'] for i in sheet.tree.get_children()]
+        check('列表里只有目录',
+              all(name.endswith('/') or name.startswith('..')
+                  for name in names), str(names[:4]))
+        check('有上级目录', any(name.startswith('..') for name in names),
+              str(names[:3]))
+        check('没有浏览全部文件按钮', not any(
+            getattr(child, '_text', '') == '浏览全部文件…'
+            for row in sheet.button_frame.winfo_children()
+            for child in row.winfo_children()), '还在')
+        check('确定按钮可用', sheet.confirm_button._state == 'normal',
+              sheet.confirm_button._state)
+
+        # 双击进目录
+        dirs = [i for i in sheet.tree.get_children()
+                if sheet._row(i)['dir'] and i != sheet._up_row]
+        if dirs:
+            box = sheet.tree.bbox(dirs[0])
+            for _ in range(2):
+                sheet.tree.event_generate('<ButtonPress-1>', x=40,
+                                          y=box[1] + 5)
+                sheet.tree.event_generate('<ButtonRelease-1>', x=40,
+                                          y=box[1] + 5)
+            pump(app, 0.3)
+            check('双击能进目录', sheet.directory != FIXTURES,
+                  sheet.directory)
+            # 点上级目录回去
+            if sheet._up_row:
+                box = sheet.tree.bbox(sheet._up_row)
+                sheet.tree.event_generate('<Button-1>', x=40, y=box[1] + 5)
+                pump(app, 0.3)
+                check('能回到上级目录', sheet.directory == FIXTURES,
+                      sheet.directory)
+        sheet.destroy()
+        pump(app, 0.2)
+
+    @step
     def s11_layout_stable():
         """打开文件不该让界面横向跳一下。
 

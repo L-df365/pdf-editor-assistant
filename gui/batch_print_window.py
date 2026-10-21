@@ -12,7 +12,7 @@
 
 import os
 import tkinter as tk
-from tkinter import filedialog, ttk
+from tkinter import ttk
 
 from core import formats
 from core.print_core import backend, PrintJob, PrintOptions, PrintQueue
@@ -61,6 +61,7 @@ class BatchPrintWindow:
             self.frame = self.win
         self._printers = []
         self._printer = None
+        self.directory = os.path.expanduser('~')
         self._rows = {}          # iid → PrintJob
         self.queue = PrintQueue(on_event=self._on_event)
         self._build()
@@ -244,12 +245,17 @@ class BatchPrintWindow:
             self.add_paths(paths)
 
     def _add_folder(self):
-        directory = filedialog.askdirectory(
-            parent=self.root, title='选择文件夹')
-        if not directory:
+        """选文件夹：用我们自己画的那个面板（比系统对话框顺手）。"""
+        from gui.file_sheet import FileSheet
+        sheet = FileSheet(self.root, mode='folder',
+                          current_path=self.directory,
+                          confirm_text='选择此文件夹')
+        path = sheet.wait(self.root)
+        if not path:
             return
+        self.directory = path
         paths = []
-        self._scan(directory, paths, 0)
+        self._scan(path, paths, 0)
         if not paths:
             toast(self.root, '这个文件夹里没有可打印的文件', 'warn')
             return
