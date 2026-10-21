@@ -150,8 +150,18 @@ def _configure_menus(root):
     root.option_add('*Menu.disabledForeground', INK_3)
     root.option_add('*Menu.borderWidth', 1)
     root.option_add('*Menu.relief', 'solid')
-    root.option_add('*Menu.tearOffBackground', SURFACE)
+    root.option_add('*Menu.background', SURFACE)
     root.option_add('*Menu.accelerator', INK_3)
+
+
+def _configure_lists(root):
+    """下拉列表（Combobox 的候选列表）也用同一套配色。"""
+    root.option_add('*Listbox.background', PAPER)
+    root.option_add('*Listbox.foreground', INK)
+    root.option_add('*Listbox.selectBackground', ACCENT_TINT)
+    root.option_add('*Listbox.selectForeground', INK)
+    root.option_add('*Listbox.borderWidth', 1)
+    root.option_add('*Listbox.font', (UI_FONT, SIZE['body']))
 
 
 def _configure_styles(style):
@@ -398,6 +408,7 @@ def init_theme(root):
 
     _apply_named_fonts(root)
     _configure_menus(root)
+    _configure_lists(root)
 
     style = ttk.Style(root)
     if 'clam' in style.theme_names():

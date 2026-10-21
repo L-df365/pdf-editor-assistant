@@ -19,6 +19,8 @@
 - ↩️ **Undo / Redo** — 5 steps of history, Ctrl+Z / Ctrl+Shift+Z
 - 👁️ **Real-time Preview** — Fit / 50% / 100% / 200% zoom
 - 🗂️ **Built-in File Panel** — Pinned places, multi-select, type badges, recent files
+- 🖨️ **Print** — Print the current document: colour, duplex (long/short edge), copies, paper, scaling, N-up, page ranges
+  (unsupported combinations are blocked with a reason instead of silently downgrading)
 - 💾 **Save** — Save / Save As
 
 ## Quick Start
@@ -166,7 +168,8 @@ pdf-editor-assistant/
 
 - [x] Batch insert multiple files (multi-select in the file panel)
 - [x] Undo / redo
-- [ ] Printing (batch print, per-item duplex and colour)
+- [x] Print the current document (colour, duplex, copies, paper, scaling, N-up, page ranges)
+- [ ] Batch printing (multi-file queue, per-file options, job merge/split; see `docs/print-plan.md`)
 - [ ] Page cropping
 - [ ] Watermark/stamp support
 - [ ] Page numbering

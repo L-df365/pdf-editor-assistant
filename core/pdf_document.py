@@ -358,6 +358,14 @@ class PDFDocument:
         self.filepath = filepath
         self._modified = False
 
+    def snapshot(self, path):
+        """把当前内存状态另存一份（打印用）。
+
+        不碰文档自己的保存状态：不改 filepath，也不清"已修改"标记。
+        """
+        self.doc.save(path, garbage=4, deflate=True)
+        return path
+
     def export_page_image(self, page_num, path, dpi=150):
         """把某一页导出为图片。"""
         page = self.doc.load_page(page_num)

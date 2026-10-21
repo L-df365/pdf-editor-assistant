@@ -129,6 +129,7 @@ class MainWindow:
             None,
             ('保存', self.save_pdf, accel_label('Ctrl+S')),
             ('另存为…', self.save_as, accel_label('Ctrl+Shift+S')),
+            ('打印…', self.print_document, accel_label('Ctrl+P')),
             None,
             ('页面信息…', self._show_page_info, accel_label('Ctrl+Shift+I')),
             None,
@@ -270,7 +271,8 @@ class MainWindow:
             on_insert=self.insert_file_dialog,
             on_export=lambda: self._export_current_page(self.current_page),
             on_undo=self.undo,
-            on_redo=self.redo)
+            on_redo=self.redo,
+            on_print=self.print_current_page)
         self.preview.pack(fill='both', expand=True)
         paned.add(right_frame, weight=1)
         self._show_empty(True)
@@ -680,6 +682,8 @@ class MainWindow:
         bind('<Control-2>', lambda e: self.preview.set_zoom(2.0))
         bind('<Control-Shift-I>', lambda e: self._show_page_info())
         bind('<Control-comma>', lambda e: self._open_backend_dialog())
+        bind('<Control-p>', lambda e: self.print_document())
+        bind('<Control-P>', lambda e: self.print_document())
         bind('<Control-question>', lambda e: self._show_shortcuts())
         bind('<Control-z>', lambda e: self.undo())
         bind('<Control-Z>', lambda e: self.undo())
@@ -775,6 +779,25 @@ class MainWindow:
                             '这一页没能存成图片。', detail=str(e))
             return
         toast(self.root, '已导出第 {} 页'.format(page_num + 1), 'ok')
+
+    def print_document(self, page_range=''):
+        """打印当前文档（单双面、颜色、纸张等在打印面板里选）。"""
+        if not self.doc.doc:
+            toast(self.root, '还没有打开文档', 'warn')
+            return
+        from gui.print_sheet import PrintSheet
+        PrintSheet.show(self.root, self.doc, page_range=page_range,
+                        title='打印 {}'.format(
+                            os.path.basename(self.doc.filepath or '文档')),
+                        on_printed=self._on_printed)
+
+    def print_current_page(self):
+        """只打印当前这一页。"""
+        self.print_document(page_range=str(self.current_page + 1))
+
+    def _on_printed(self, job_id):
+        toast(self.root, '已提交打印作业 #{}'.format(job_id), 'ok')
+        self._update_status('已提交打印作业 #{}'.format(job_id))
 
     def _show_page_info(self):
         if not self.doc.doc:

@@ -19,7 +19,8 @@ class PreviewPanel:
     """右侧预览面板：页面预览 + 缩放分段 + 页码计数。"""
 
     def __init__(self, parent, on_rotate=None, on_delete=None,
-                 on_insert=None, on_export=None, on_undo=None, on_redo=None):
+                 on_insert=None, on_export=None, on_undo=None, on_redo=None,
+                 on_print=None):
         self.frame = ttk.Frame(parent, style='Surface.TFrame')
         self.current_photo = None
         self._last_doc = None
@@ -31,6 +32,7 @@ class PreviewPanel:
         self.on_export = on_export
         self.on_undo = on_undo
         self.on_redo = on_redo
+        self.on_print = on_print
 
         self._build_action_row()
         self._build_canvas()
@@ -75,8 +77,10 @@ class PreviewPanel:
             action('↻ 顺时针', lambda: self.on_rotate(90))
         if self.on_insert:
             action('＋ 在此后插入', self.on_insert)
+        if self.on_print:
+            action('打印此页', self.on_print)
         if self.on_delete:
-            action('⌫ 删除此页', self.on_delete, variant='danger')
+            action('✂ 删除此页', self.on_delete, variant='danger')
 
 
     def _build_canvas(self):

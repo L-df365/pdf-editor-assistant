@@ -344,6 +344,138 @@ def run(app):
               abs(app._paned.sashpos(0) - dragged) <= 2,
               '{} -> {}'.format(dragged, app._paned.sashpos(0)))
 
+    @step
+    def s11_print_panel():
+        """打印面板：能力探测、参数映射、能力校验拦截。
+
+        用假的 CUPS 连接：不碰真打印机，也不会出纸。
+        """
+        from core.print import printers
+        from gui.print_sheet import PrintSheet
+
+        class FakeConnection:
+            def __init__(self):
+                self.jobs = []
+
+            def getPrinters(self):
+                return ['FakePrinter']
+
+            def getDefault(self):
+                return 'FakePrinter'
+
+            def getPrinterAttributes(self, name):
+                return {
+                    'printer-state': 3,
+                    'printer-is-accepting-jobs': True,
+                    'printer-state-reasons': [],
+                    'sides-supported': ['one-sided',
+                                        'two-sided-long-edge'],
+                    'print-color-mode-supported': ['monochrome', 'color'],
+                    'media-supported': ['iso_a4_210x297mm',
+                                        'iso_a3_297x420mm'],
+                    'media-default': 'iso_a4_210x297mm',
+                    'number-up-supported': [1, 2],
+                    'page-ranges-supported': True,
+                }
+
+            def printFile(self, printer, filename, title, options):
+                self.jobs.append({'printer': printer, 'file': filename,
+                                  'title': title, 'options': options})
+                return 42
+
+            def getJobAttributes(self, job_id):
+                return {'job-state': 7}
+
+            def cancelJob(self, job_id):
+                return True
+
+        fake = FakeConnection()
+        printers.set_connection(fake)
+        try:
+            sheet = PrintSheet(app.root, app.doc, title='打印')
+            sheet._place(app.root)
+            pump(app, 0.3)
+            check('打印面板能打开', sheet.winfo_ismapped(), '面板没显示')
+            check('找到打印机了', sheet._printer is not None, '没找到打印机')
+            check('默认能打印', sheet.print_button._state == 'normal',
+                  '按钮被禁用了：{}'.format(sheet.form.problems()))
+
+            # 参数要正确映射成 CUPS 的作业属性
+            form = sheet.form
+            form.color_choice.set_value('mono')
+            form.duplex_choice.set_value('long')
+            form.copies.delete(0, 'end')
+            form.copies.insert(0, '2')
+            form.set_page_range('1-2')
+            pump(app, 0.3)
+            opts = form.options()
+            cups = opts.to_cups('1-2')
+            check('颜色映射成 print-color-mode',
+                  cups.get('print-color-mode') == 'monochrome', str(cups))
+            check('单双面映射成 sides',
+                  cups.get('sides') == 'two-sided-long-edge', str(cups))
+            check('份数映射成 copies', cups.get('copies') == '2', str(cups))
+            check('页码范围传下去了',
+                  cups.get('page-ranges') == '1-2', str(cups))
+
+            # 打印机不支持的选项要拦下来，不能静默降级
+            form.duplex_choice.set_value('short')
+            pump(app, 0.3)
+            check('不支持的双面被拦下', bool(form.problems()),
+                  '问题列表是空的')
+            check('拦下后打印按钮禁用',
+                  sheet.print_button._state == 'disabled',
+                  sheet.print_button._state)
+            form.duplex_choice.set_value('long')
+            pump(app, 0.3)
+
+            sheet._print()
+            pump(app, 0.3)
+            check('提交了一个打印作业', len(fake.jobs) == 1,
+                  'jobs={}'.format(fake.jobs))
+            if fake.jobs:
+                job = fake.jobs[0]
+                check('作业带上了参数',
+                      job['options'].get('sides') == 'two-sided-long-edge',
+                      str(job['options']))
+                check('打印的是临时副本',
+                      job['file'] != app.doc.filepath, job['file'])
+                check('临时文件已清理',
+                      not os.path.exists(job['file']), job['file'])
+            sheet.destroy()
+        finally:
+            printers.set_connection(None)
+        pump(app, 0.2)
+
+    @step
+    def s12_print_ranges():
+        """页码范围解析：组合、开区间、后缀。"""
+        from core.print import ranges
+        check('解析组合范围',
+              ranges.parse('1-5,8', 20) == [(1, 5, None), (8, 8, None)],
+              str(ranges.parse('1-5,8', 20)))
+        check('开区间补齐到末页',
+              ranges.parse('18-', 20) == [(18, 20, None)],
+              str(ranges.parse('18-', 20)))
+        check('超出的页码被夹住',
+              ranges.parse('1-99', 20) == [(1, 20, None)],
+              str(ranges.parse('1-99', 20)))
+        check('后缀模式能解析',
+              ranges.parse('1-12d,13s', 20) ==
+              [(1, 12, 'd'), (13, 13, 's')],
+              str(ranges.parse('1-12d,13s', 20)))
+        check('混了模式要拆作业', ranges.has_mixed_modes(
+            ranges.parse('1-12d,13s', 20)), '没识别出来')
+        check('页数统计正确',
+              ranges.count_pages(ranges.parse('1-5,8', 20)) == 6,
+              str(ranges.count_pages(ranges.parse('1-5,8', 20))))
+        try:
+            ranges.parse('abc', 20)
+            ok = False
+        except ranges.RangeError:
+            ok = True
+        check('写错的范围会报错', ok, '没报错')
+
     def stepper():
         if not steps:
             print('\n===== 结果 =====')

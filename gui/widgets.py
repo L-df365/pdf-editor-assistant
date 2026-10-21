@@ -243,6 +243,44 @@ class FlatButton(tk.Canvas):
                              fill=fg, font=self._font)
 
 
+class Segmented(tk.Frame):
+    """分段控件：一排互斥的小按钮（颜色、单双面、N-up 用它）。
+
+    不用 ttk.Combobox 是因为选项少、且要跟缩放条那排按钮保持同一套观感。
+    """
+
+    def __init__(self, parent, choices, value='', command=None, bg=None):
+        super().__init__(parent, bg=bg or bg_of(parent))
+        self._command = command
+        self._value = value
+        self._buttons = {}
+        for item_value, label in choices:
+            button = FlatButton(self, label, variant='segment', bg=self.cget('bg'),
+                                command=lambda v=item_value: self.set_value(v))
+            button.pack(side='left', padx=1, pady=1)
+            self._buttons[item_value] = button
+        self.set_value(value, notify=False)
+
+    def set_value(self, value, notify=True):
+        """选中某一项（value 为 None/'' 表示不选）。"""
+        self._value = value
+        for item_value, button in self._buttons.items():
+            button.set_variant('segment-on' if item_value == value
+                               else 'segment')
+        if notify and self._command:
+            self._command(value)
+        return self
+
+    def get(self):
+        return self._value
+
+    def disable_item(self, value, disabled=True):
+        """把某一项置灰（打印机不支持时用）。"""
+        button = self._buttons.get(value)
+        if button is not None:
+            button.configure_state(not disabled)
+
+
 class Chip(tk.Canvas):
     """小色块标签（例如"已选 3 个文件"）。"""
 
