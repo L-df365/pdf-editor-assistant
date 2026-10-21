@@ -746,6 +746,55 @@ def run(app):
             printers.set_connection(None)
         pump(app, 0.2)
 
+    @step
+    def s13b_batch_sort():
+        """队列排序：按文件名排 + 每行的上下箭头能手动调顺序。"""
+        from gui.batch_print_window import BatchPrintWindow
+
+        window = BatchPrintWindow(app.root)
+        pump(app, 0.3)
+        window.add_paths([PNG, DOCX, PDF])
+        pump(app, 0.2)
+        names = [job.name for job in window.queue.jobs]
+        check('按添加顺序排', names == [os.path.basename(p) for p in
+                                       (PNG, DOCX, PDF)], str(names))
+
+        tree = window.tree
+
+        def column_x(number):
+            total = 0
+            for i in range(number - 1):
+                total += tree.column('#{}'.format(i + 1), 'width')
+            return total + 10
+
+        # 点第 2 行的 ↓：它应该和第 3 行换位
+        rows = tree.get_children()
+        box = tree.bbox(rows[1])
+        tree.event_generate('<Button-1>', x=column_x(len(tree['columns'])),
+                            y=box[1] + 5)
+        pump(app, 0.2)
+        moved = [job.name for job in window.queue.jobs]
+        check('点↓能往下挪', moved[1] == names[2] and moved[2] == names[1],
+              str(moved))
+
+        # 点第 3 行的 ↑：换回去
+        rows = tree.get_children()
+        box = tree.bbox(rows[2])
+        tree.event_generate('<Button-1>', x=column_x(len(tree['columns']) - 1),
+                            y=box[1] + 5)
+        pump(app, 0.2)
+        back = [job.name for job in window.queue.jobs]
+        check('点↑能往上挪', back == names, str(back))
+
+        # 按文件名排序
+        window.sort_box.current(1)
+        window._on_sort()
+        pump(app, 0.2)
+        sorted_names = [job.name for job in window.queue.jobs]
+        check('能按文件名排序', sorted_names == sorted(names), str(sorted_names))
+        window.win.destroy()
+        pump(app, 0.2)
+
     def stepper():
         if not steps:
             print('\n===== 结果 =====')

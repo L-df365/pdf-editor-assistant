@@ -33,7 +33,22 @@ COLUMNS = (
     ('颜色', 50),
     ('单双面', 65),
     ('状态', 75),
+    ('↑', 26),
+    ('↓', 26),
 )
+
+#: 队列排序方式
+SORT_MODES = (
+    ('manual', '添加顺序'),
+    ('name', '文件名'),
+    ('mtime', '修改时间'),
+    ('size', '大小'),
+    ('type', '类型'),
+)
+
+#: 上下移动两列在表格里的位置（最后两列，从 0 起数）
+UP_COLUMN = len(COLUMNS) - 2
+DOWN_COLUMN = len(COLUMNS) - 1
 
 #: 文件夹展开的限制
 MAX_FOLDER_FILES = 500
@@ -128,6 +143,15 @@ class BatchPrintWindow:
         self.count_label = tk.Label(head, text='', bg=SURFACE, fg=INK_3,
                                     font=font('meta'))
         self.count_label.pack(side='left', padx=(8, 0))
+        # 排序：按文件名/时间/大小/类型，或保持添加顺序
+        tk.Label(head, text='排序', bg=SURFACE, fg=INK_2,
+                 font=font('meta')).pack(side='right', padx=(8, 4))
+        self.sort_box = ttk.Combobox(head, state='readonly', width=9,
+                                      font=font('meta'))
+        self.sort_box['values'] = [label for _, label in SORT_MODES]
+        self.sort_box.current(0)
+        self.sort_box.pack(side='right')
+        self.sort_box.bind('<<ComboboxSelected>>', lambda e: self._on_sort())
 
         columns = [c[0] for c in COLUMNS]
         self.tree = ttk.Treeview(left, columns=columns, show='headings',
@@ -141,6 +165,7 @@ class BatchPrintWindow:
         self.tree.grid(row=1, column=0, sticky='nsew', padx=(12, 0))
         vsb.grid(row=1, column=1, sticky='ns')
         self.tree.bind('<Double-1>', lambda e: self._edit_selected())
+        self.tree.bind('<Button-1>', self._on_tree_click)
         self.tree.tag_configure('failed', foreground=DANGER)
         self.tree.tag_configure('done', foreground=INK_3)
         self.tree.tag_configure('picked', foreground=ACCENT)
@@ -289,8 +314,77 @@ class BatchPrintWindow:
                                     printer=self._printer.name
                                     if self._printer else ''))
             added += 1
+        self._sort_jobs()
         self._refresh_rows()
         self._log('加入 {} 个文件'.format(added))
+
+    # ------------------------------------------------------------------
+    # 排序
+    # ------------------------------------------------------------------
+
+    def _on_sort(self):
+        self._sort_jobs()
+        self._refresh_rows()
+        label = self.sort_box.get()
+        self._log('按{}排序'.format(label))
+
+    def _sort_jobs(self):
+        """按当前排序方式重排队列（"添加顺序"就是不动）。"""
+        index = self.sort_box.current() if hasattr(self, 'sort_box') else 0
+        mode = SORT_MODES[index][0] if 0 <= index < len(SORT_MODES) else 'manual'
+        if mode == 'manual':
+            return
+        jobs = self.queue.jobs
+        if mode == 'name':
+            jobs.sort(key=lambda job: job.name.lower())
+        elif mode == 'type':
+            jobs.sort(key=lambda job: (formats.badge_of(job.path)
+                                       if job.path else '', job.name.lower()))
+        elif mode in ('mtime', 'size'):
+            jobs.sort(key=lambda job: self._stat_of(job, mode),
+                      reverse=(mode == 'mtime'))
+
+    @staticmethod
+    def _stat_of(job, mode):
+        """取文件的修改时间/大小（取不到就排最后）。"""
+        try:
+            stat = os.stat(job.path)
+        except OSError:
+            return 0 if mode == 'size' else -1
+        return stat.st_size if mode == 'size' else stat.st_mtime
+
+    def _on_tree_click(self, event):
+        """点表格：最后两列是上下箭头，用来手动调顺序。"""
+        column = self.tree.identify_column(event.x)
+        if not column:
+            return
+        index = int(column.replace('#', '')) - 1
+        if index not in (UP_COLUMN, DOWN_COLUMN):
+            return
+        iid = self.tree.identify_row(event.y)
+        if not iid:
+            return
+        job = self._rows.get(iid)
+        if job is None:
+            return
+        self._move_job(job, -1 if index == UP_COLUMN else 1)
+        return 'break'
+
+    def _move_job(self, job, delta):
+        """把某个文件在队列里上移/下移。"""
+        jobs = self.queue.jobs
+        try:
+            position = jobs.index(job)
+        except ValueError:
+            return
+        target = position + delta
+        if target < 0 or target >= len(jobs):
+            return
+        jobs[position], jobs[target] = jobs[target], jobs[position]
+        # 手动调过顺序，排序方式回到"添加顺序"，免得下一次刷新又排回去
+        self.sort_box.current(0)
+        self._refresh_rows()
+        self._log('{} → 第 {} 位'.format(job.name, target + 1))
 
     def _remove_selected(self):
         selection = self.tree.selection()
@@ -320,10 +414,14 @@ class BatchPrintWindow:
         for iid in self.tree.get_children():
             self.tree.delete(iid)
         self._rows = {}
+        total_jobs = len(self.queue.jobs)
         for index, job in enumerate(self.queue.jobs):
             options = job.options
             iid = 'job{}'.format(index)
             self._rows[iid] = job
+            # 最后两列是上下箭头：第一行没有"上移"，最后一行没有"下移"
+            up = '↑' if index > 0 else ''
+            down = '↓' if index < total_jobs - 1 else ''
             self.tree.insert(
                 '', 'end', iid=iid,
                 values=(job.name, formats.badge_of(job.path) if job.path else '',
@@ -332,7 +430,7 @@ class BatchPrintWindow:
                                                               '默认'),
                         {'one': '单面', 'long': '双面长边',
                          'short': '双面短边'}.get(options.duplex, '默认'),
-                        job.state_text),
+                        job.state_text, up, down),
                 tags=('failed',) if job.state == PrintState.FAILED
                 else (('done',) if job.state == PrintState.DONE else ()))
         total = len(self.queue.jobs)
