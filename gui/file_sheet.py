@@ -25,6 +25,15 @@ RECENT = '__recent__'
 
 #: 右侧详情栏的宽度上限（像素）。文件名再长也不能把文件列表挤没。
 INFO_WIDTH = 190
+#: 面板固定宽度。宽度跟着内容跳来跳去（选不同文件宽度就变）很不专业。
+PANEL_WIDTH = 860
+
+
+def _shorten(text, limit=64):
+    """太长的文本截断（详情栏高度是固定的）。"""
+    if len(text) <= limit:
+        return text
+    return text[:limit - 1] + '…'
 
 
 def _human_time(timestamp):
@@ -66,7 +75,7 @@ class FileSheet(Sheet):
             title = '选择文件夹'
         else:
             title = '插入文件' if self.multi else '打开 PDF'
-        super().__init__(parent, title)
+        super().__init__(parent, title, panel_width=PANEL_WIDTH)
 
         self._build_body()
         self._build_footer(confirm_text)
@@ -107,11 +116,13 @@ class FileSheet(Sheet):
                           command=lambda: self._sort_by('mtime'))
         self.tree.heading('size', text='大小', anchor='e',
                           command=lambda: self._sort_by('size'))
-        self.tree.column('sel', width=26, stretch=False, anchor='center')
-        self.tree.column('name', width=220, stretch=True, anchor='w')
-        self.tree.column('type', width=52, stretch=False, anchor='w')
-        self.tree.column('mtime', width=84, stretch=False, anchor='w')
-        self.tree.column('size', width=62, stretch=False, anchor='e')
+        # 列宽要能塞进固定的面板宽度：固定的列加起来不能超过面板，
+        # 剩下的都给"名称"（它 stretch，多余的空间它吸收）。
+        self.tree.column('sel', width=24, stretch=False, anchor='center')
+        self.tree.column('name', width=150, stretch=True, anchor='w')
+        self.tree.column('type', width=50, stretch=False, anchor='w')
+        self.tree.column('mtime', width=76, stretch=False, anchor='w')
+        self.tree.column('size', width=58, stretch=False, anchor='e')
         self.tree.tag_configure('picked', foreground=ACCENT)
         self.tree.tag_configure('dim', foreground=INK_3)
         vsb = ttk.Scrollbar(middle, orient='vertical',
@@ -142,12 +153,15 @@ class FileSheet(Sheet):
         right.grid(row=0, column=2, sticky='nse', padx=(14, 0))
         ttk.Label(right, text='详情', style='Paper.TLabel', font=font('meta'),
                   foreground=INK_3).pack(anchor='w', pady=(0, 6))
-        # wraplength 是必须的：文件名很长时，标签会按整行宽度去要空间，
-        # 把左边的文件列表挤没了（列宽由控件的申请宽度决定）。
-        # 固定折行宽度后，这一列最多占这么宽，剩下的都留给列表。
+        # 这一列的宽度要固定：
+        # - wraplength：文件名很长时不会把左边的文件列表挤没
+        # - 固定宽度的容器：不跟着内容变（否则面板宽度会跳）
         hint = ('选一个文件夹\n这里会显示它的位置' if self.folder_mode
                 else '在列表里选一个文件\n这里会显示它的信息')
-        self.info_label = tk.Label(right, text=hint,
+        holder = tk.Frame(right, bg=PAPER, width=INFO_WIDTH, height=150)
+        holder.pack_propagate(False)
+        holder.pack(anchor='w')
+        self.info_label = tk.Label(holder, text=hint,
                                    bg=PAPER, fg=INK_2, font=font('meta'),
                                    justify='left', anchor='w',
                                    wraplength=INFO_WIDTH)
@@ -507,17 +521,19 @@ class FileSheet(Sheet):
     def _update_info(self, path):
         """右栏显示选中文件的信息（不渲染缩略图）。
 
-        长文件名会按 INFO_WIDTH 折行显示，不会把左边的列表挤没。
+        长文件名按 INFO_WIDTH 折行显示，不会把左边的列表挤没；
+        太长的再截断，免得详情栏被撑得很高。
         """
         row = self._row(path)
         if row is None:
             return
         if self.folder_mode:
             self.info_label.configure(text='{}\n{}'.format(
-                os.path.basename(path.rstrip(os.sep)) or path, path))
+                _shorten(os.path.basename(path.rstrip(os.sep)) or path),
+                _shorten(path)))
             return
         self.info_label.configure(
-            text='{}\n{}\n{}\n{}'.format(row['name'], row['type'],
+            text='{}\n{}\n{}\n{}'.format(_shorten(row['name']), row['type'],
                                         row['mtime'], row['size']))
 
     # ------------------------------------------------------------------

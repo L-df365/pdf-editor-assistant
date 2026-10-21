@@ -110,12 +110,14 @@ class Sheet(tk.Toplevel):
     MARGIN = 12
     RADIUS = 10
 
-    def __init__(self, parent, title, body='', width=420):
+    def __init__(self, parent, title, body='', width=420, panel_width=None):
         super().__init__(parent)
         self.withdraw()
         self.overrideredirect(True)
         self.transient(parent)
         self.result = None
+        # 固定宽度：内容多寡不该让窗口宽度跳来跳去（选不同文件宽度就变，很不专业）
+        self._panel_width = panel_width
 
         self._bg = tk.Canvas(self, highlightthickness=0, bg=PAPER)
         self._bg.place(x=0, y=0, relwidth=1, relheight=1)
@@ -168,6 +170,8 @@ class Sheet(tk.Toplevel):
         self.update_idletasks()
         width = self.winfo_reqwidth()
         height = self.winfo_reqheight()
+        if self._panel_width:
+            width = self._panel_width
         if width <= 1:
             width = self._frame.winfo_reqwidth() + self.MARGIN * 2
         if height <= 1:

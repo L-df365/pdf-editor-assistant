@@ -477,6 +477,30 @@ def run(app):
         pump(app, 0.2)
 
     @step
+    def s7e_fixed_width():
+        """文件面板的宽度要固定：选不同文件时宽度不能跳。"""
+        from gui.file_sheet import PANEL_WIDTH, FileSheet
+        sheet = FileSheet(app.root, mode='insert', current_path=FIXTURES,
+                          confirm_text='加入队列')
+        sheet._place(app.root)
+        pump(app, 0.3)
+        check('面板宽度是固定的', sheet.winfo_width() == PANEL_WIDTH,
+              '{} != {}'.format(sheet.winfo_width(), PANEL_WIDTH))
+        files = [i for i in sheet.tree.get_children()
+                 if not sheet._row(i)['dir'] and sheet.tree.bbox(i)]
+        widths = {sheet.winfo_width()}
+        for path in files[:3]:
+            box = sheet.tree.bbox(path)
+            if not box:
+                continue
+            sheet.tree.event_generate('<Button-1>', x=40, y=box[1] + 5)
+            pump(app, 0.15)
+            widths.add(sheet.winfo_width())
+        check('选不同文件宽度不变', len(widths) == 1, str(widths))
+        sheet.destroy()
+        pump(app, 0.2)
+
+    @step
     def s11_layout_stable():
         """打开文件不该让界面横向跳一下。
 
