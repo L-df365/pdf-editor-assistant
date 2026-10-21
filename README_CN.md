@@ -152,13 +152,17 @@ output_path = backend.convert_to_pdf(input_path)
 | `libreoffice` | LibreOffice headless 转换 |
 
 应用本身只包含界面和 PDF 处理逻辑，不包含 WPS/LibreOffice。启动时会
-自动检测本机环境：
+自动检测本机环境，**有什么用什么**：
 
-- 已安装 **WPS**：自动补齐 `pywpsrpc`、`xvfb` 等 WPS 转换支持。
+- 已安装 **WPS**：自动把 WPS 的转换支持准备好 —— PyQt5 运行时、Xvfb，
+  以及随应用一起发布的 pywpsrpc **预编译包**（arm64 上游没有 wheel，
+  这里不用用户编译）。
 - 已安装 **LibreOffice**：直接使用，无需额外组件。
 - 两者都未安装：弹出选择框，提供「安装 WPS Office」和「安装 LibreOffice」
   两个按钮，点击后打开系统软件商店并复制搜索词，安装完成后重启应用即可。
-- 在「设置 → 转换后端」中手动选择未安装的后端时，也会提示安装。
+- 在「设置 → 转换后端」中手动选择未安装的后端时，也会自动配上对应组件。
+
+> 用户只需要决定装 WPS 还是 LibreOffice，"工具"是应用自己的事。
 
 选择方式（优先级从高到低）：
 
@@ -207,6 +211,7 @@ pdf-editor-assistant/
 ├── uninstall.sh         # 卸载脚本
 ├── requirements.txt     # Python 依赖（只有 PyMuPDF 和 Pillow）
 ├── requirements-wps.txt # 可选：WPS 后端依赖
+├── wheels/             # 随应用发布的预编译包（arm64 的 pywpsrpc）
 ├── core/                # 与界面无关
 │   ├── converter.py     # 转换后端门面（可切换）
 │   ├── settings.py      # 记住所选后端与最近文件
@@ -245,7 +250,7 @@ pdf-editor-assistant/
 │   ├── design-system.md # 设计系统
 │   ├── print-plan.md    # 打印功能方案
 │   └── ui/              # 界面截图
-└── tools/uitest.py      # 界面自测：合成真实鼠标事件（88 项）
+└── tools/uitest.py      # 界面自测：合成真实鼠标事件（91 项）
 ```
 
 ---
@@ -283,7 +288,7 @@ pdf-editor-assistant/
 ## 开发
 
 ```bash
-xvfb-run -a python3 tools/uitest.py      # 界面自测（88 项，不需要显示器）
+xvfb-run -a python3 tools/uitest.py      # 界面自测（91 项，不需要显示器）
 ```
 
 自测用合成鼠标事件走真实链路（点击 / 拖拽 / 悬停 / 右键），不碰真打印机

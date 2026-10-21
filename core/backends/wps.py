@@ -75,14 +75,20 @@ class PyWpsRpcBackend(ConversionBackend):
         '.pptx', '.ppt', '.odp',
     }
 
+    def suite_installed(self):
+        from .installer import is_wps_installed
+        return is_wps_installed()
+
     def is_available(self):
         return (importlib.util.find_spec('pywpsrpc') is not None
                 and find_wps_lib_dir() is not None
                 and shutil.which('xvfb-run') is not None)
 
     def unavailable_reason(self):
+        if not self.suite_installed():
+            return '未安装 WPS Office'
         if importlib.util.find_spec('pywpsrpc') is None:
-            return '未安装 pywpsrpc（aarch64 需源码编译）'
+            return '转换支持还没准备好（应用会自动补上）'
         if find_wps_lib_dir() is None:
             return '未找到 WPS Office 的 RPC 库（librpcwpsapi_sysqt5.so）'
         if shutil.which('xvfb-run') is None:

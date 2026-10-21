@@ -21,7 +21,11 @@ class ConversionBackend:
         return ext == '.pdf' or ext in self.SUPPORTED
 
     def is_available(self):
-        """后端运行条件是否满足（已安装、依赖可导入等）。"""
+        """桥接工具是否就绪（能不能真的转换）。"""
+        return False
+
+    def suite_installed(self):
+        """对应的办公套件装了没有（和桥接工具是两回事）。"""
         return False
 
     def unavailable_reason(self):

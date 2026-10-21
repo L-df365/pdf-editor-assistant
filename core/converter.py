@@ -2,7 +2,7 @@ import os
 
 from .backends import (
     BACKEND_ENV,
-    BACKEND_CLASSES,
+    BACKEND_CLASSES as _BACKEND_CLASSES,
     DEFAULT_BACKEND,
     backend_choices as _backend_choices,
     backend_status as _backend_status,
@@ -24,7 +24,7 @@ class DocumentConverter:
     """
 
     SUPPORTED = set().union(
-        *(cls.SUPPORTED for cls in BACKEND_CLASSES))
+        *(cls.SUPPORTED for cls in _BACKEND_CLASSES))
 
     def __init__(self, backend=None):
         self._requested = (backend or os.environ.get(BACKEND_ENV)
@@ -73,4 +73,30 @@ class DocumentConverter:
             return True
 
     def convert_to_pdf(self, input_path, output_dir=None):
-        return self.backend.convert_to_pdf(input_path, output_dir=output_dir)
+        """转换文件为 PDF。
+
+        首选当前后端；它失败而另一个套件可用时自动改用另一个
+        （总比直接失败强 —— 用户只关心文件被转出来了）。
+        """
+        backend = self.backend
+        try:
+            return backend.convert_to_pdf(input_path, output_dir=output_dir)
+        except Exception as exc:
+            fallback = self._fallback_backend(backend)
+            if fallback is None:
+                raise
+            try:
+                return fallback.convert_to_pdf(input_path,
+                                               output_dir=output_dir)
+            except Exception:
+                raise exc
+
+    def _fallback_backend(self, current):
+        """另一个可用的后端（没有就返回 None）。"""
+        for cls in _BACKEND_CLASSES:
+            if cls.name == current.name:
+                continue
+            other = cls()
+            if other.is_available():
+                return other
+        return None

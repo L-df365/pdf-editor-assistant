@@ -49,6 +49,9 @@ class LibreOfficeBackend(ConversionBackend):
 
         return None
 
+    def suite_installed(self):
+        return bool(self.soffice)
+
     def is_available(self):
         return bool(self.soffice)
 

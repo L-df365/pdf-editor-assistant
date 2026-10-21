@@ -64,11 +64,35 @@ if ! run_as_user python3 -m pip install --user $PIP_ARGS 2>/dev/null; then
     run_as_user python3 -m pip install --user --break-system-packages $PIP_ARGS
 fi
 echo -e "${GREEN}  Python 依赖已安装${NC}"
-echo "  转换后端不随应用安装，首次选择缺失的后端时应用会提示下载。"
+
+# 桥接工具：装了 WPS 就把 WPS 的转换支持准备好（用随应用发布的预编译包，
+# **不需要用户编译**）。没装 WPS 就先不管，用户在应用里选装哪个套件。
+prepare_bridge() {
+    local suite="$1"
+    run_as_user python3 - "$suite" <<'PYEOF'
+import sys
+sys.path.insert(0, __import__('os').getcwd())
+try:
+    from core.backends import installer
+    print(installer.prepare_bridge(sys.argv[1], log=print))
+except Exception as exc:
+    print('桥接工具准备失败（不影响安装）: %s' % exc)
+PYEOF
+}
+
+HAS_WPS=0
+command -v wps > /dev/null 2>&1 && HAS_WPS=1
+[ -x /opt/kingsoft/wps-office/office6/wps ] && HAS_WPS=1
+if [ "$HAS_WPS" = "1" ]; then
+    echo "  检测到 WPS Office，正在准备 WPS 转换支持..."
+    (cd "$SCRIPT_DIR" && prepare_bridge wps) || true
+fi
+echo "  转换后端不随应用安装；应用里选择 WPS 还是 LibreOffice 后会自动配上对应的桥接工具。"
 
 echo -e "${YELLOW}[3/5] 安装程序到 ${INSTALL_DIR}...${NC}"
 $SUDO mkdir -p "$INSTALL_DIR"
 $SUDO cp -r "$SCRIPT_DIR"/{main.py,core,gui,requirements.txt} "$INSTALL_DIR/"
+[ -d "$SCRIPT_DIR/wheels" ] && $SUDO cp -r "$SCRIPT_DIR/wheels" "$INSTALL_DIR/"
 [ -f "$SCRIPT_DIR/requirements-wps.txt" ] && \
     $SUDO cp "$SCRIPT_DIR/requirements-wps.txt" "$INSTALL_DIR/"
 [ -f "$SCRIPT_DIR/README.md" ] && $SUDO cp "$SCRIPT_DIR/README.md" "$INSTALL_DIR/"

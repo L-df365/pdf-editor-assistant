@@ -261,7 +261,7 @@ pdf-editor-assistant/
 │   ├── design-system.md # Design system
 │   ├── print-plan.md    # Print feature plan
 │   └── ui/              # Screenshots
-└── tools/uitest.py      # UI self-test: synthesised real mouse events (88 checks)
+└── tools/uitest.py      # UI self-test: synthesised real mouse events (91 checks)
 ```
 
 ---
@@ -300,7 +300,7 @@ and Pillow.
 ## Development
 
 ```bash
-xvfb-run -a python3 tools/uitest.py      # UI self-test (88 checks, no display needed)
+xvfb-run -a python3 tools/uitest.py      # UI self-test (91 checks, no display needed)
 ```
 
 The self-test drives the real code paths with synthesised mouse events

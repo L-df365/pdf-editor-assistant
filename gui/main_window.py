@@ -388,8 +388,12 @@ class MainWindow:
                   for item in self.doc.converter.backend_status()}
         result = []
         for name, label in self.doc.converter.backend_choices():
-            if name != 'auto' and not status.get(name, {}).get('available'):
-                label = label + '（未安装）'
+            if name != 'auto':
+                info = status.get(name, {})
+                if not info.get('available'):
+                    # 套件没装 vs 装了但桥接工具没就绪，要说清楚
+                    label += '（未安装）' if not info.get('installed') \
+                        else '（需要配置转换支持）'
             result.append((name, label))
         return result
 
@@ -456,23 +460,41 @@ class MainWindow:
             pass
 
     def _check_backends_on_startup(self):
+        """启动时看本机有什么办公套件，缺什么桥接工具就自动补上。
+
+        策略：**有什么用什么**。装了 WPS 就用 WPS（哪怕桥接工具还没装好，
+        应用自己补），装了 LibreOffice 就用 LibreOffice；
+        两个都没装，才让用户选装哪个。
+        """
         if self._installing:
             return
+        from core.backends import detect_office_suite
+        suite = detect_office_suite()
         status = {item['name']: item
                   for item in self.doc.converter.backend_status()}
-        if any(item['available'] for item in status.values()):
+
+        if suite == 'wps':
+            if not status.get('wps', {}).get('available'):
+                self._update_status('正在自动配置 WPS 转换支持...')
+                self._start_backend_install(
+                    'wps', status.get('wps', {}).get('label', 'WPS'),
+                    auto=True)
             return
-        if installer.is_wps_installed():
-            self._update_status('正在自动配置 WPS 转换支持...')
-            self._start_backend_install(
-                'wps', status['wps']['label'], auto=True)
-            return
-        if installer.is_libreoffice_installed():
-            self._update_status('LibreOffice 已安装但暂不可用')
+        if suite == 'libreoffice':
+            if not status.get('libreoffice', {}).get('available'):
+                self._update_status('LibreOffice 已安装但暂不可用')
             return
         self._show_backend_choice()
 
     def _show_backend_choice(self):
+        """两个办公套件都没装时，让用户选装哪个。
+
+        只在**真的一个都没装**时弹：套件装着、只是桥接工具没配好的时候，
+        弹这个会让人误以为自己没装 WPS。
+        """
+        from core.backends import detect_office_suite
+        if detect_office_suite():
+            return
         dialog = tk.Toplevel(self.root)
         dialog.title('需要文件转换工具')
         dialog.transient(self.root)
@@ -608,6 +630,20 @@ class MainWindow:
             detail = '\n'.join(self._install_log[-30:])
             if len(detail) > 2000:
                 detail = '...' + detail[-2000:]
+            from core.backends import detect_office_suite
+            suite = detect_office_suite()
+            if suite:
+                # 办公套件是装着的，只是转换支持没准备好 ——
+                # 这时候弹"没检测到 WPS/LibreOffice"是误导，用户会以为要去装套件
+                ErrorPanel.show(
+                    self.root, '转换支持没准备好',
+                    '{} 已经装好了，但让它转换文件的组件没能装上。'
+                    '可以点「重试」再试一次，或者改装 LibreOffice。\n'
+                    '（PDF 的打开、预览、旋转和保存不受影响。）'.format(
+                        'WPS Office' if suite == 'wps' else 'LibreOffice'),
+                    detail='{}\n\n{}'.format(error, detail))
+                self._update_status('转换支持没准备好，插入文件暂时不可用')
+                return
             ErrorPanel.show(
                 self.root, '安装失败',
                 '后端没能装上。可以在「设置 → 转换后端」里重试，'

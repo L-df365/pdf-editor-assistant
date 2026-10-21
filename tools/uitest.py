@@ -841,6 +841,22 @@ def run(app):
         window.win.destroy()
         pump(app, 0.2)
 
+    @step
+    def s12b_backend_choice():
+        """后端选择：有什么用什么，用户只被问装哪个办公套件。"""
+        from core.backends import detect_office_suite, get_backend
+        from core.backends import installer
+        suite = detect_office_suite()
+        check('能探测到本机的办公套件', suite in ('wps', 'libreoffice'),
+              '探测结果 {}'.format(suite))
+        if suite:
+            backend = get_backend('auto')
+            check('自动选择跟着办公套件走', backend.name == suite,
+                  '选了 {}'.format(backend.name))
+        # 预编译包要跟着应用走
+        wheels = installer.bundled_wheels()
+        check('随应用带了预编译包', bool(wheels), 'wheels/ 是空的')
+
     def stepper():
         if not steps:
             print('\n===== 结果 =====')

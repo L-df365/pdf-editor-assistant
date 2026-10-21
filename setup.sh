@@ -34,22 +34,23 @@ else
 fi
 echo -e "${GREEN}  Found: $($PIP --version)${NC}"
 
-# Check conversion backends (installed on demand from the app)
+# Check conversion backends (the app prepares the bridge by itself)
 echo -e "${YELLOW}[3/4] Checking conversion backends...${NC}"
 if $PYTHON -c "import pywpsrpc" &> /dev/null \
    && { [ -e /opt/kingsoft/wps-office/office6/librpcwpsapi_sysqt5.so ] \
-        || [ -e /usr/lib/office6/librpcwpsapi_sysqt5.so ]; } \
+        || [ -e /usr/lib/office6/librpcwpsapi_sysqt5.so ] \
+        || [ -e /opt/apps/cn.wps.wps-office/files/kingsoft/wps-office/office6/librpcwpsapi_sysqt5.so ]; } \
    && command -v xvfb-run &> /dev/null; then
     echo -e "${GREEN}  WPS 静默后端可用${NC}"
 else
-    echo -e "${YELLOW}  WPS 后端未就绪（应用内选择 WPS 时会提示安装）${NC}"
+    echo -e "${YELLOW}  WPS 转换支持未就绪（应用会自动补上，不用你编译）${NC}"
 fi
 if command -v soffice &> /dev/null; then
     echo -e "${GREEN}  LibreOffice 后端可用${NC}"
 else
     echo -e "${YELLOW}  LibreOffice 未安装（应用内选择时会提示安装）${NC}"
 fi
-echo "  后端不随应用安装，按需调用本机 WPS / LibreOffice。"
+echo "  办公套件不随应用安装；应用里选 WPS 还是 LibreOffice 后，会自动配上对应的转换支持。"
 
 # Install Python dependencies
 echo -e "${YELLOW}[4/4] Installing Python dependencies...${NC}"
