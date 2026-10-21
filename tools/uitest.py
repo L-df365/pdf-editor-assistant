@@ -19,10 +19,42 @@ import tkinter as tk  # noqa: E402
 from gui.main_window import MainWindow  # noqa: E402
 
 SHOTS = '/tmp/opencode/ui-tk'
-PDF = '/tmp/pyw/many.pdf'
+FIXTURES = '/tmp/pyw'
+PDF = os.path.join(FIXTURES, 'many.pdf')
+SMALL_PDF = os.path.join(FIXTURES, 'six.pdf')
+PNG = os.path.join(FIXTURES, 'photo.png')
+DOCX = os.path.join(FIXTURES, 'test.docx')
 os.makedirs(SHOTS, exist_ok=True)
 
 RESULTS = []
+
+
+def ensure_fixtures():
+    """测试用的文件自己造：/tmp 会被清理，不能指望它一直都在。"""
+    os.makedirs(FIXTURES, exist_ok=True)
+    if not os.path.isfile(PDF):
+        import pymupdf
+        doc = pymupdf.open()
+        for i in range(24):
+            page = doc.new_page(width=595, height=842)
+            page.insert_text((72, 120), 'Page {}'.format(i + 1), fontsize=36)
+        doc.save(PDF)
+        doc.close()
+    if not os.path.isfile(SMALL_PDF):
+        import pymupdf
+        doc = pymupdf.open()
+        for i in range(6):
+            page = doc.new_page(width=595, height=842)
+            page.insert_text((72, 120), 'Page {}'.format(i + 1), fontsize=36)
+        doc.save(SMALL_PDF)
+        doc.close()
+    if not os.path.isfile(PNG):
+        from PIL import Image
+        Image.new('RGB', (400, 300), (120, 180, 200)).save(PNG)
+    if not os.path.isfile(DOCX):
+        with open(DOCX, 'wb') as f:
+            f.write(b'PK\x03\x04 placeholder for tests')
+    return PDF
 
 
 def check(name, ok, detail=''):
@@ -84,6 +116,7 @@ def drag_to(app, widget, target, offset=0, steps=8):
 
 
 def run(app):
+    ensure_fixtures()
     steps = []
 
     def step(fn):
@@ -234,7 +267,7 @@ def run(app):
         sheet._place(app.root)
         pump(app, 0.3)
         shot('06-文件面板')
-        for path in ('/tmp/pyw/test.docx', '/tmp/pyw/photo.png'):
+        for path in (DOCX, PNG):
             if os.path.exists(path):
                 sheet.selected.add(path)
         sheet._update_selection_label()
@@ -272,7 +305,7 @@ def run(app):
     def s9_insert_position_sheet():
         """插入位置面板：以前这里少导入一个颜色常量会直接崩。"""
         from gui.insert_sheet import InsertSheet
-        sheet = InsertSheet(app.root, paths=['/tmp/pyw/many.pdf'],
+        sheet = InsertSheet(app.root, paths=[PDF],
                             current_page=app.current_page,
                             page_count=app.doc.page_count)
         sheet._place(app.root)
@@ -294,7 +327,7 @@ def run(app):
         from gui.file_sheet import FileSheet
 
         def fake_browse(directory):
-            return '/tmp/pyw/many.pdf'
+            return PDF
 
         sheet = FileSheet(app.root, mode='insert',
                           current_path=app.doc.filepath,
@@ -312,7 +345,7 @@ def run(app):
             pump(app, 0.3)
             check('浏览后浮层还在', sheet.winfo_ismapped(), '浮层不见了')
             check('浏览后选中了文件',
-                  '/tmp/pyw/many.pdf' in sheet.selected,
+                  PDF in sheet.selected,
                   str(sheet.selected))
             grab = app.root.tk.call('grab', 'current')
             check('浏览后 grab 回到浮层', 'filesheet' in str(grab), str(grab))
@@ -350,7 +383,7 @@ def run(app):
 
         用假的 CUPS 连接：不碰真打印机，也不会出纸。
         """
-        from core.print import printers
+        from core.print_core import backend as printers
         from gui.print_sheet import PrintSheet
 
         class FakeConnection:
@@ -450,7 +483,7 @@ def run(app):
     @step
     def s12_print_ranges():
         """页码范围解析：组合、开区间、后缀。"""
-        from core.print import ranges
+        from core.print_core import ranges
         check('解析组合范围',
               ranges.parse('1-5,8', 20) == [(1, 5, None), (8, 8, None)],
               str(ranges.parse('1-5,8', 20)))
@@ -476,6 +509,95 @@ def run(app):
             ok = True
         check('写错的范围会报错', ok, '没报错')
 
+    @step
+    def s13_batch_window():
+        """批量打印窗口：主程序里能开、能加文件、默认参数会下发、能跑队列。
+
+        用假的 CUPS 连接，不会碰真打印机。
+        """
+        from core.print_core import backend as printers
+        from gui.batch_print_window import BatchPrintWindow
+
+        class FakeConnection:
+            def __init__(self):
+                self.jobs = []
+
+            def getPrinters(self):
+                return ['FakePrinter']
+
+            def getDefault(self):
+                return 'FakePrinter'
+
+            def getPrinterAttributes(self, name):
+                return {
+                    'printer-state': 3,
+                    'printer-is-accepting-jobs': True,
+                    'printer-state-reasons': [],
+                    'sides-supported': ['one-sided', 'two-sided-long-edge'],
+                    'print-color-mode-supported': ['monochrome', 'color'],
+                    'media-supported': ['iso_a4_210x297mm'],
+                    'media-default': 'iso_a4_210x297mm',
+                    'number-up-supported': [1, 2],
+                    'page-ranges-supported': True,
+                }
+
+            def printFile(self, printer, filename, title, options):
+                self.jobs.append({'file': filename, 'options': options})
+                return 100 + len(self.jobs)
+
+            def getJobAttributes(self, job_id):
+                return {'job-state': 7}
+
+            def cancelJob(self, job_id):
+                return True
+
+        fake = FakeConnection()
+        printers.set_connection(fake)
+        try:
+            window = BatchPrintWindow(app.root)
+            pump(app, 0.3)
+            check('批量打印窗口能打开', window.win.winfo_ismapped(), '没打开')
+            check('批量窗口找到打印机', window._printer is not None, '没找到')
+
+            window.add_paths([SMALL_PDF, PDF])
+            pump(app, 0.2)
+            check('队列加进了文件', len(window.queue.jobs) == 2,
+                  str(len(window.queue.jobs)))
+            check('队列表格有行',
+                  len(window.tree.get_children()) == 2,
+                  str(len(window.tree.get_children())))
+
+            # 默认参数要下发到队列项
+            window.form.color_choice.set_value('mono')
+            window.form.duplex_choice.set_value('long')
+            pump(app, 0.2)
+            first = window.queue.jobs[0]
+            check('默认参数下发到队列项',
+                  first.options.color == 'mono' and
+                  first.options.duplex == 'long',
+                  '{} {}'.format(first.options.color, first.options.duplex))
+
+            # 跑队列
+            window._start()
+            for _ in range(40):
+                pump(app, 0.1)
+                if len(fake.jobs) >= 2:
+                    break
+            check('队列提交了两个作业', len(fake.jobs) == 2,
+                  str(len(fake.jobs)))
+            if fake.jobs:
+                check('作业带上了参数',
+                      fake.jobs[0]['options'].get('sides') ==
+                      'two-sided-long-edge',
+                      str(fake.jobs[0]['options']))
+                check('队列项状态变成已完成',
+                      window.queue.jobs[0].state == 'done',
+                      window.queue.jobs[0].state)
+            window.win.destroy()
+        finally:
+            printers.set_connection(None)
+        pump(app, 0.2)
+
     def stepper():
         if not steps:
             print('\n===== 结果 =====')
@@ -500,11 +622,11 @@ def run(app):
 
 
 def main():
+    ensure_fixtures()          # 先备料：/tmp 里的文件可能被清理掉
     app = MainWindow()
     app.root.geometry('1280x800')
     app.root.update()
-    if os.path.isfile(PDF):
-        app.open_file(PDF)
+    app.open_file(PDF)
     app.root.update()
     app.root.after(300, lambda: (run(app), False)[-1])
     app.root.mainloop()

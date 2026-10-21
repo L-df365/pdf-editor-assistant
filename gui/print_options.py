@@ -7,8 +7,8 @@
 import tkinter as tk
 from tkinter import ttk
 
-from core.print import options as poptions
-from core.print import ranges
+from core.print_core import PrintOptions
+from core.print_core import ranges
 from gui.theme import DANGER, INK, INK_2, INK_3, LINE, PAPER, font
 from gui.widgets import Segmented
 
@@ -179,7 +179,7 @@ class PrintOptionsForm(tk.Frame):
         pages = ''
         if self.page_entry is not None:
             pages = self.page_entry.get().strip()
-        return poptions.PrintOptions(
+        return PrintOptions(
             pages=pages,
             copies=copies,
             media=media,

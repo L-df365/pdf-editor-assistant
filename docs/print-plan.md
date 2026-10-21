@@ -8,14 +8,34 @@
 
 | 部分 | 状态 |
 |---|---|
-| 打印底座 `core/print/`（参数、页码范围解析、能力探测、作业提交） | ✅ 已完成 |
+| 打印底座 `core/print_core/`（参数、页码范围解析、能力探测、作业提交、队列） | ✅ 已完成 |
 | 参数表单 `gui/print_options.py`（批量打印的逐项覆盖复用它） | ✅ 已完成 |
 | **打印当前 PDF**（文件 → 打印… / Ctrl+P / 预览动作条「打印此页」） | ✅ 已完成 |
-| 批量打印（队列、逐文件参数、合并拆分、状态监控、模板与历史） | ⏳ 待做，单独开发后接入 |
+| **批量打印窗口** `gui/batch_print_window.py`（一套界面，两个入口） | ✅ 第一期已完成 |
+| 独立入口 `pdf-print` / `pdf-editor --print`（不启动页面管理） | ✅ 已完成 |
+| 任务自动合并与拆分（含奇偶配对）、打印模板、任务历史 | ⏳ 待做 |
 
-批量打印按独立模块开发：它有自己的窗口（`gui/print_window.py`）和队列
-（`core/print/queue.py`），但**参数表单、底座、能力校验全部复用上面已经做好的部分**，
-接进 PDF 助手时只是多一个入口。
+### 已经怎么落地的
+
+```
+core/print_core/          打印的唯一实现，不依赖 tkinter、不依赖 PyMuPDF
+├── jobs.py               PrintJob / PrintOptions（参数 → IPP 属性的映射）
+├── ranges.py             页码范围解析（含 1-12d 这种分段模式）
+├── convert.py            内存文档 / PDF / Word… → 可打印的 PDF
+├── backend.py            CUPS：能力探测、提交、查询、取消
+├── queue.py              批量队列：顺序执行、暂停/继续/取消、状态回调
+└── __init__.py           print_single(doc, options) / print_batch(jobs)
+
+gui/batch_print_window.py 一套界面：主程序里是子窗口，独立启动时是主窗口
+gui/print_options.py      参数表单（两处共用）
+gui/print_sheet.py        打印当前文档的面板
+```
+
+- 主程序打印当前文档 → `print_core.print_single(doc, options)`
+- 批量打印 → `print_core.print_batch(jobs)`（队列内部逐个调 `submit_job`）
+- 两条路走的是同一套参数映射、转换、能力校验和错误处理
+- 独立入口不加载页面管理，因此**不需要 PyMuPDF**（只有"打印内存里打开的文档"
+  那条路径需要，而那本来就在主程序里）
 
 ---
 

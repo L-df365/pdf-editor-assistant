@@ -1,4 +1,7 @@
-"""打印机能力探测与作业提交（CUPS / IPP）。
+"""打印后端：CUPS / IPP。
+
+能力探测、作业提交、状态查询、取消都收在这一层，
+上层（打印当前文档 / 批量队列）不直接碰 CUPS。
 
 用 IPP 属性而不是厂商 PPD 选项：换一台打印机不用改代码。
 实测本机 Konica C368 支持：
@@ -10,6 +13,8 @@ page-ranges-supported = True
 """
 
 import os
+
+from .errors import PrintError
 
 #: python3-cups 是系统包（python3-cups），不是 pip 依赖；
 #: 没装的时候打印功能要给出明确提示，而不是直接崩。
@@ -48,10 +53,6 @@ JOB_STATES = {
     8: '已删除',
     9: '处理中',
 }
-
-
-class PrintError(RuntimeError):
-    """打印相关的问题（给界面直接显示的）。"""
 
 
 class PrinterInfo:
@@ -236,6 +237,12 @@ def job_exists(job_id):
     except Exception:
         return False
     return bool(attrs)
+
+
+def sides_text(sides):
+    """CUPS 的 sides 值 → 中文。"""
+    return {'one-sided': '单面', 'two-sided-long-edge': '双面长边',
+            'two-sided-short-edge': '双面短边'}.get(sides, sides)
 
 
 def temp_pdf_path(prefix='pdf-print-'):

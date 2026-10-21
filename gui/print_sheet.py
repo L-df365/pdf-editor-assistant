@@ -4,13 +4,11 @@
 core/print 的底座和 PrintOptionsForm 这块参数界面。
 """
 
-import os
 import tkinter as tk
 from tkinter import ttk
 
-from core.print import prepare
-from core.print import printers
-from core.print import ranges
+from core.print_core import backend, print_single, ranges
+from core.print_core.errors import PrintError
 from gui.feedback import Sheet, toast
 from gui.theme import INK_2, PAPER, font
 from gui.widgets import FlatButton
@@ -75,13 +73,13 @@ class PrintSheet(Sheet):
     # ------------------------------------------------------------------
 
     def _load_printers(self):
-        if not printers.available():
+        if not backend.available():
             self.summary.configure(text='系统没有安装 python3-cups，打印不可用')
             self.printer_box['values'] = ()
             return
         try:
-            items = printers.list_printers()
-        except printers.PrintError as exc:
+            items = backend.list_printers()
+        except PrintError as exc:
             self.summary.configure(text=str(exc))
             return
         if not items:
@@ -89,7 +87,7 @@ class PrintSheet(Sheet):
             return
         self._printers = items
         self.printer_box['values'] = [p.label() for p in items]
-        default = printers.default_printer()
+        default = backend.default_printer()
         index = 0
         if default is not None:
             for i, printer in enumerate(items):
@@ -131,31 +129,21 @@ class PrintSheet(Sheet):
     # ------------------------------------------------------------------
 
     def _print(self):
+        """交给 print_core 打印：当前文档和批量打印走同一套逻辑。"""
         if not self._printer:
             return
         opts = self.form.options()
         if self.form.problems():
             return
-        segments = ranges.parse(opts.pages, self.doc.page_count)
-        page_ranges = ranges.to_cups_value(segments)
-        if not segments:
-            page_ranges = ''
-        path = None
         try:
-            # 打印的是"当前状态"：先把内存里的文档另存一份
-            path = prepare.snapshot(self.doc)
-            job_id = printers.submit(self._printer.name, path,
-                                     os.path.basename(self.doc.filepath or 'PDF'),
-                                     opts.to_cups(page_ranges))
-        except printers.PrintError as exc:
-            prepare.cleanup(path)
+            # print_single 打印的是内存里的当前状态（改了没保存也算数）
+            job_id = print_single(self.doc, opts, printer=self._printer.name)
+        except PrintError as exc:
             toast(self.master, str(exc), 'error')
             return
         except Exception as exc:
-            prepare.cleanup(path)
             toast(self.master, '打印失败：{}'.format(exc), 'error')
             return
-        prepare.cleanup(path)
         self._job_id = job_id
         self.result = job_id
         if self.on_printed:

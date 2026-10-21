@@ -1,4 +1,10 @@
 #!/usr/bin/env python3
+"""PDF 内嵌编辑助手 —— 入口。
+
+两种启动方式：
+- pdf-editor 文件.pdf        打开编辑器
+- pdf-editor --print         直接开批量打印窗口（不加载页面管理，启动更快）
+"""
 import argparse
 import os
 import sys
@@ -6,9 +12,6 @@ import urllib.parse
 import urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-
-from gui.main_window import MainWindow
-from gui.feedback import toast
 
 
 def _parse_args(argv=None):
@@ -20,6 +23,9 @@ def _parse_args(argv=None):
     parser.add_argument(
         '--backend', choices=['auto', 'wps', 'libreoffice'],
         help='文件转换后端：auto/wps(本机 WPS 静默)/libreoffice')
+    parser.add_argument(
+        '--print', action='store_true',
+        help='直接打开批量打印窗口（不启动页面管理）')
     return parser.parse_args(argv)
 
 
@@ -34,10 +40,24 @@ def _to_path(arg):
     return urllib.request.url2pathname(parsed.path)
 
 
+def _run_batch_print():
+    """独立批量打印：不加载页面管理那一套（也就用不到 PyMuPDF）。"""
+    from gui.batch_print_window import BatchPrintWindow
+    window = BatchPrintWindow()
+    window.run()
+
+
 def main(argv=None):
     args = _parse_args(argv)
     if args.backend:
         os.environ['PDF_EDIT_BACKEND'] = args.backend
+
+    if args.print:
+        _run_batch_print()
+        return
+
+    from gui.main_window import MainWindow
+    from gui.feedback import toast
 
     app = MainWindow()
     if args.file:

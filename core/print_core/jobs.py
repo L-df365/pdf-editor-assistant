@@ -1,4 +1,4 @@
-"""打印参数。
+"""打印参数与作业模型。
 
 界面上的每一项都对应一个 IPP 作业属性，CUPS 那边原生支持：
 颜色、单双面、份数、纸张、缩放、N-up、页码范围。
@@ -7,6 +7,8 @@
 批量打印里的"公共默认 + 单文件覆盖"也基于这个语义：
 未覆盖的字段留空，覆盖的字段填值。
 """
+
+import os
 
 #: 缩放方式 → CUPS print-scaling
 SCALING_LABELS = (
@@ -45,6 +47,31 @@ NUP_LAYOUTS = (
 )
 
 
+class PrintState:
+    """作业状态。"""
+
+    PENDING = 'pending'          # 排队等待
+    PREPARING = 'preparing'      # 准备文件（转 PDF / 取内存状态）
+    SUBMITTING = 'submitting'    # 提交给打印队列
+    PRINTING = 'printing'        # 已提交，打印机在打
+    DONE = 'done'                # 完成
+    FAILED = 'failed'            # 失败
+    CANCELLED = 'cancelled'      # 已取消
+    BLOCKED = 'blocked'          # 能力不支持，拦下了
+
+    #: 展示用的名字
+    LABELS = {
+        PENDING: '等待中',
+        PREPARING: '准备中',
+        SUBMITTING: '提交中',
+        PRINTING: '打印中',
+        DONE: '已完成',
+        FAILED: '失败',
+        CANCELLED: '已取消',
+        BLOCKED: '已拦下',
+    }
+
+
 class PrintOptions:
     """一组打印参数。空字符串/None = 不指定。"""
 
@@ -70,6 +97,17 @@ class PrintOptions:
         """除了份数之外都没设置 = 没改过。"""
         return not any((self.pages, self.media, self.scaling, self.color,
                         self.duplex)) and self.nup <= 1
+
+    def merged(self, default):
+        """用默认值补齐没有设置的字段（批量打印的"公共默认 + 覆盖"）。"""
+        merged = default.copy()
+        for name in self.__slots__:
+            value = getattr(self, name)
+            if name == 'copies':
+                continue
+            if value not in ('', None):
+                setattr(merged, name, value)
+        return merged
 
     # -- 与打印机的能力对照 ------------------------------------------
 
@@ -130,3 +168,53 @@ class PrintOptions:
         if self.scaling:
             parts.append(dict(SCALING_LABELS).get(self.scaling, ''))
         return ' · '.join(p for p in parts if p)
+
+
+class PrintJob:
+    """一个打印作业。
+
+    source 可以是：
+    - PDFDocument 实例：打印内存里的当前状态（改了没保存也算数）
+    - 文件路径：PDF 直接用，其它格式先转
+    """
+
+    def __init__(self, source, options=None, printer='', name=''):
+        self.source = source
+        self.options = options or PrintOptions()
+        self.printer = printer or ''
+        self.state = PrintState.PENDING
+        self.error = ''
+        self.job_ids = []
+        self._name = name
+
+    # -- 显示 --------------------------------------------------------
+
+    @property
+    def name(self):
+        if self._name:
+            return self._name
+        path = self.path
+        if path:
+            return os.path.basename(path)
+        filepath = getattr(self.source, 'filepath', '')
+        return os.path.basename(filepath) if filepath else '未命名文档'
+
+    @property
+    def path(self):
+        """源是路径时返回路径，否则返回内存文档的文件名（可能为空）。"""
+        if isinstance(self.source, str):
+            return self.source
+        return getattr(self.source, 'filepath', '') or ''
+
+    @property
+    def is_memory_doc(self):
+        """源是内存里打开的文档（要按当前状态导出）。"""
+        return not isinstance(self.source, str)
+
+    @property
+    def state_text(self):
+        return PrintState.LABELS.get(self.state, self.state)
+
+    def title(self):
+        """提交给 CUPS 的作业名。"""
+        return self.name

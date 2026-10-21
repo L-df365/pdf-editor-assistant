@@ -47,6 +47,7 @@ class MainWindow:
         self._install_log = []
         self._tasks = queue.Queue()
         self._pending_paths = []
+        self._batch_windows = []
         self._rail_width = 280
         self._rail_user_set = False
         self._rail_ready = False
@@ -130,6 +131,7 @@ class MainWindow:
             ('保存', self.save_pdf, accel_label('Ctrl+S')),
             ('另存为…', self.save_as, accel_label('Ctrl+Shift+S')),
             ('打印…', self.print_document, accel_label('Ctrl+P')),
+            ('批量打印…', self.open_batch_print),
             None,
             ('页面信息…', self._show_page_info, accel_label('Ctrl+Shift+I')),
             None,
@@ -790,6 +792,13 @@ class MainWindow:
                         title='打印 {}'.format(
                             os.path.basename(self.doc.filepath or '文档')),
                         on_printed=self._on_printed)
+
+    def open_batch_print(self):
+        """批量打印窗口（和独立工具是同一套界面）。"""
+        from gui.batch_print_window import BatchPrintWindow
+        window = BatchPrintWindow(self.root)
+        self._batch_windows.append(window)
+        return window
 
     def print_current_page(self):
         """只打印当前这一页。"""

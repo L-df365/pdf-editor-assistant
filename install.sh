@@ -84,6 +84,14 @@ exec python3 main.py "\$@"
 EOF
 $SUDO chmod +x /usr/local/bin/pdf-editor
 
+# 独立批量打印：同一套界面，不启动页面管理
+$SUDO tee /usr/local/bin/pdf-print > /dev/null << EOF
+#!/bin/bash
+cd ${INSTALL_DIR} || exit 1
+exec python3 main.py --print "\$@"
+EOF
+$SUDO chmod +x /usr/local/bin/pdf-print
+
 DESKTOP_FILE=$(mktemp)
 cat > "$DESKTOP_FILE" << EOF
 [Desktop Entry]
@@ -102,14 +110,36 @@ MimeType=application/pdf;
 StartupNotify=true
 EOF
 
+PRINT_DESKTOP_FILE=$(mktemp)
+cat > "$PRINT_DESKTOP_FILE" << EOF
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=批量打印
+Name[zh_CN]=批量打印
+Comment=把一批文件按各自参数打印出来
+Comment[zh_CN]=把一批文件按各自参数打印出来
+Exec=/usr/local/bin/pdf-print
+TryExec=/usr/local/bin/pdf-print
+Icon=application-pdf
+Terminal=false
+Categories=Office;
+StartupNotify=true
+EOF
+
 $SUDO install -m 644 "$DESKTOP_FILE" /usr/share/applications/pdf-editor.desktop
+$SUDO install -m 644 "$PRINT_DESKTOP_FILE" \
+    /usr/share/applications/pdf-print.desktop
 mkdir -p "$TARGET_HOME/.local/share/applications"
 install -m 644 "$DESKTOP_FILE" "$TARGET_HOME/.local/share/applications/pdf-editor.desktop"
-rm -f "$DESKTOP_FILE"
+install -m 644 "$PRINT_DESKTOP_FILE" \
+    "$TARGET_HOME/.local/share/applications/pdf-print.desktop"
+rm -f "$DESKTOP_FILE" "$PRINT_DESKTOP_FILE"
 
 if [ "$(id -u)" -eq 0 ]; then
     chown "$TARGET_USER:$TARGET_USER" \
-        "$TARGET_HOME/.local/share/applications/pdf-editor.desktop"
+        "$TARGET_HOME/.local/share/applications/pdf-editor.desktop" \
+        "$TARGET_HOME/.local/share/applications/pdf-print.desktop"
 fi
 if command -v restorecon &> /dev/null; then
     $SUDO restorecon \

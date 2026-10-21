@@ -38,7 +38,8 @@ class FileSheet(Sheet):
     _sort_key = 'name'      # 当前排序依据：name / type / mtime / size
 
     def __init__(self, parent, mode='open', current_path=None,
-                 confirm_text='打开', on_browse=None, on_confirm=None):
+                 confirm_text='打开', on_browse=None, on_confirm=None,
+                 title=None):
         self.mode = mode
         self.multi = mode == 'insert'
         self.current_path = current_path
@@ -51,7 +52,7 @@ class FileSheet(Sheet):
         self.rows = []
         self._index = {}      # 路径 → 行数据（点选时查）
 
-        title = '插入文件' if self.multi else '打开 PDF'
+        title = title or ('插入文件' if self.multi else '打开 PDF')
         super().__init__(parent, title)
 
         self._build_body()

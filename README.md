@@ -21,6 +21,8 @@
 - 🗂️ **Built-in File Panel** — Pinned places, multi-select, type badges, recent files
 - 🖨️ **Print** — Print the current document: colour, duplex (long/short edge), copies, paper, scaling, N-up, page ranges
   (unsupported combinations are blocked with a reason instead of silently downgrading)
+- 🗂️ **Batch printing** — Queue many files and set options per file;
+  standalone entry point `pdf-print` (no page management, starts faster), the same window is reachable from the app
 - 💾 **Save** — Save / Save As
 
 ## Quick Start
@@ -169,7 +171,8 @@ pdf-editor-assistant/
 - [x] Batch insert multiple files (multi-select in the file panel)
 - [x] Undo / redo
 - [x] Print the current document (colour, duplex, copies, paper, scaling, N-up, page ranges)
-- [ ] Batch printing (multi-file queue, per-file options, job merge/split; see `docs/print-plan.md`)
+- [x] Batch printing (multi-file queue, per-file overrides, pause/cancel/retry, failure isolation)
+- [ ] Automatic job merge/split, print templates and history (see `docs/print-plan.md`)
 - [ ] Page cropping
 - [ ] Watermark/stamp support
 - [ ] Page numbering
