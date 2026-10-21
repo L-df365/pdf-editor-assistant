@@ -23,6 +23,9 @@ from gui.theme import ACCENT, ACCENT_TINT, INK_2, INK_3, PAPER, font
 HOME = os.path.expanduser('~')
 RECENT = '__recent__'
 
+#: 右侧详情栏的宽度上限（像素）。文件名再长也不能把文件列表挤没。
+INFO_WIDTH = 190
+
 
 def _human_time(timestamp):
     return time.strftime('%m-%d %H:%M', time.localtime(timestamp))
@@ -130,11 +133,13 @@ class FileSheet(Sheet):
         right.grid(row=0, column=2, sticky='nse', padx=(14, 0))
         ttk.Label(right, text='详情', style='Paper.TLabel', font=font('meta'),
                   foreground=INK_3).pack(anchor='w', pady=(0, 6))
-        # 不要用 width=（字符数）：中日韩字体的字宽和"字符"对不上，
-        # 宽度算小了文字会被切掉。让它按文本自适应。
+        # wraplength 是必须的：文件名很长时，标签会按整行宽度去要空间，
+        # 把左边的文件列表挤没了（列宽由控件的申请宽度决定）。
+        # 固定折行宽度后，这一列最多占这么宽，剩下的都留给列表。
         self.info_label = tk.Label(right, text='在列表里选一个文件\n这里会显示它的信息',
                                    bg=PAPER, fg=INK_2, font=font('meta'),
-                                   justify='left', anchor='w')
+                                   justify='left', anchor='w',
+                                   wraplength=INFO_WIDTH)
         self.info_label.pack(anchor='w')
 
     def _build_footer(self, confirm_text):
@@ -441,7 +446,10 @@ class FileSheet(Sheet):
         self.confirm_button.configure_state(bool(count))
 
     def _update_info(self, path):
-        """右栏显示选中文件的信息（不渲染缩略图）。"""
+        """右栏显示选中文件的信息（不渲染缩略图）。
+
+        长文件名会按 INFO_WIDTH 折行显示，不会把左边的列表挤没。
+        """
         row = self._row(path)
         if row is None:
             return

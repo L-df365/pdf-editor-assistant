@@ -399,6 +399,39 @@ def run(app):
         pump(app, 0.2)
 
     @step
+    def s7c_long_name():
+        """文件名特别长时，详情栏不能把文件列表挤没。"""
+        from gui.file_sheet import INFO_WIDTH, FileSheet
+        long_name = ('这是一个非常非常长的文件名用来测试详情栏会不会把文件列表'
+                     '挤掉-' + '长' * 40 + '.pdf')
+        path = os.path.join(FIXTURES, long_name)
+        if not os.path.isfile(path):
+            with open(path, 'wb') as f:
+                f.write(b'%PDF-1.4\n')
+        sheet = FileSheet(app.root, mode='insert', current_path=path,
+                          confirm_text='加入队列')
+        sheet._place(app.root)
+        pump(app, 0.3)
+        rows = [i for i in sheet.tree.get_children()
+                if not sheet._row(i)['dir']]
+        check('长文件名的面板没被撑爆', sheet.winfo_width() < 1000,
+              '面板宽 {}'.format(sheet.winfo_width()))
+        check('详情栏宽度有上限',
+              sheet.info_label.winfo_reqwidth() <= INFO_WIDTH + 20,
+              '详情宽 {}'.format(sheet.info_label.winfo_reqwidth()))
+        check('文件列表还剩得下', sheet.tree.winfo_width() > 200,
+              '列表宽 {}'.format(sheet.tree.winfo_width()))
+        if rows:
+            box = sheet.tree.bbox(rows[0])
+            sheet.tree.event_generate('<Button-1>', x=40, y=box[1] + 5)
+            pump(app, 0.2)
+            check('选了长名字之后列表还在',
+                  sheet.tree.winfo_width() > 200,
+                  '列表宽 {}'.format(sheet.tree.winfo_width()))
+        sheet.destroy()
+        pump(app, 0.2)
+
+    @step
     def s11_layout_stable():
         """打开文件不该让界面横向跳一下。
 
