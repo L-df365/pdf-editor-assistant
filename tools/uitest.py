@@ -353,6 +353,52 @@ def run(app):
         pump(app, 0.2)
 
     @step
+    def s7b_file_sheet_multiselect():
+        """文件面板的多选：点一个加一个，Ctrl 能加，再点一次能取消。"""
+        from gui.file_sheet import FileSheet
+        sheet = FileSheet(app.root, mode='insert',
+                          current_path=app.doc.filepath,
+                          confirm_text='加入队列')
+        sheet._place(app.root)
+        pump(app, 0.3)
+
+        def rows():
+            return [i for i in sheet.tree.get_children()
+                    if not sheet._row(i)['dir']]
+
+        def click_row(path, state=0):
+            box = sheet.tree.bbox(path)
+            sheet.tree.event_generate('<Button-1>', x=40, y=box[1] + 5,
+                                       state=state)
+            pump(app, 0.1)
+
+        items = rows()
+        check('列表里有可选文件', len(items) >= 2,
+              '只有 {} 个'.format(len(items)))
+        if len(items) >= 2:
+            click_row(items[0])
+            check('点一下选中一个', len(sheet.selected) == 1,
+                  str(len(sheet.selected)))
+            click_row(items[1])
+            check('再点一个变成两个', len(sheet.selected) == 2,
+                  str(len(sheet.selected)))
+            check('树里的高亮也是两个',
+                  len(sheet.tree.selection()) == 2,
+                  str(len(sheet.tree.selection())))
+            if len(items) >= 3:
+                click_row(items[2], state=0x0004)     # Ctrl
+                check('Ctrl+点能加选', len(sheet.selected) == 3,
+                      str(len(sheet.selected)))
+            click_row(items[0])
+            check('再点一次能取消', len(sheet.selected) == 2,
+                  str(len(sheet.selected)))
+            check('已选计数跟着变',
+                  '2' in sheet.selection_label.get_text(),
+                  sheet.selection_label.get_text())
+        sheet.destroy()
+        pump(app, 0.2)
+
+    @step
     def s11_layout_stable():
         """打开文件不该让界面横向跳一下。
 

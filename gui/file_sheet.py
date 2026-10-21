@@ -51,6 +51,7 @@ class FileSheet(Sheet):
         self.selected = set()
         self.rows = []
         self._index = {}      # 路径 → 行数据（点选时查）
+        self._anchor = None   # Shift 连选的锚点
 
         title = title or ('插入文件' if self.multi else '打开 PDF')
         super().__init__(parent, title)
@@ -109,6 +110,7 @@ class FileSheet(Sheet):
         middle.rowconfigure(0, weight=1)
         middle.columnconfigure(0, weight=1)
         self.tree.bind('<Button-1>', self._on_click)
+        self.tree.bind('<<TreeviewSelect>>', self._on_selection)
         self.tree.bind('<Double-1>', self._on_double)
         # Treeview 默认不吃滚轮，列表长了只能拖滚动条
         self.tree.bind('<MouseWheel>',
@@ -294,6 +296,8 @@ class FileSheet(Sheet):
             self.rows.sort(key=lambda r: (not r['dir'], r['type'],
                                           r['name'].lower()))
         self._index = {row['path']: row for row in self.rows}
+        # 重建表格会清掉选择，先记下来，插完再选回去
+        keep = set(self.tree.selection())
         self.tree.delete(*self.tree.get_children())
         for row in self.rows:
             mark = '✓' if row['path'] in self.selected else ''
@@ -305,8 +309,21 @@ class FileSheet(Sheet):
                 values=(mark, row['name'], row['type'], row['mtime'],
                         row['size']),
                 tags=tuple(tags))
+        for path in keep:
+            if self.tree.exists(path):
+                self.tree.selection_add(path)
 
     def _on_click(self, event):
+        """点一下行。
+
+        多选模式下自己管选择：
+        - 普通点击：累加/取消这一行（点一个加一个，连点好几个都能选上）
+        - Ctrl+点击：同上
+        - Shift+点击：从上一次点击的位置连选一段
+
+        不能交给 Treeview 的默认行为：它每次点击都把选择整个替换掉，
+        之前"点一个加一个"的效果就没了。返回 'break' 拦掉默认处理。
+        """
         item = self.tree.identify_row(event.y)
         if not item:
             return
@@ -316,20 +333,76 @@ class FileSheet(Sheet):
         if row['dir']:
             self.tree.selection_set(item)
             return
-        if self.multi:
-            if item in self.selected:
-                self.selected.discard(item)
-            else:
-                self.selected.add(item)
-            self._sort_by(self._sort_key)
-            self.tree.selection_set(item)
-            self._update_info(item)
-            self._update_selection_label()
-        else:
+        if not self.multi:
             self.selected = {item}
             self.tree.selection_set(item)
-            self._update_info(item)
+            self._refresh_marks()
             self._update_selection_label()
+            self._update_info(item)
+            return
+
+        self.tree.focus_set()
+        shift = bool(event.state & 0x0001)
+        if shift and self._anchor:
+            self._select_range(self._anchor, item)
+        else:
+            selection = set(self.tree.selection())
+            if item in selection:
+                selection.discard(item)
+            else:
+                selection.add(item)
+            self._apply_selection(selection)
+            self._anchor = item
+        self._refresh_marks()
+        self._update_selection_label()
+        self._update_info(item)
+        return 'break'
+
+    def _apply_selection(self, selection):
+        """把选择写进 Treeview（'已选'集合跟着走）。"""
+        self.tree.selection_set(list(selection))
+        self.selected = set(selection)
+
+    def _select_range(self, start, end):
+        """Shift 连选：从 start 到 end 这一段都选中。"""
+        paths = [row['path'] for row in self.rows if not row['dir']]
+        try:
+            first = paths.index(start)
+            last = paths.index(end)
+        except ValueError:
+            return
+        if first > last:
+            first, last = last, first
+        selection = set(self.tree.selection())
+        selection.update(paths[first:last + 1])
+        self._apply_selection(selection)
+
+    def _on_selection(self, event=None):
+        """选择变化：同步选择集合、"已选"标记和右侧详情。"""
+        selection = list(self.tree.selection())
+        if self.multi:
+            self.selected = set(selection)
+        elif selection:
+            self.selected = {selection[0]}
+        self._refresh_marks()
+        self._update_selection_label()
+        if selection:
+            self._update_info(selection[-1])
+
+    def _refresh_marks(self):
+        """只改"已选"标记和行样式，不重建整张表。"""
+        for row in self.rows:
+            path = row['path']
+            if not self.tree.exists(path):
+                continue
+            values = list(self.tree.item(path, 'values'))
+            values[0] = '✓' if path in self.selected else ''
+            tags = []
+            if path in self.selected:
+                tags.append('picked')
+            if path == self.current_path:
+                tags.append('dim')
+            self.tree.item(path, values=values, tags=tuple(tags))
 
     def _on_double(self, event):
         item = self.tree.identify_row(event.y)
@@ -345,8 +418,13 @@ class FileSheet(Sheet):
         return self._index.get(path)
 
     def _select_all(self):
-        self.selected = {row['path'] for row in self.rows if not row['dir']}
-        self._sort_by(self._sort_key)
+        """全选：把当前列表里能选的都选上。"""
+        paths = [row['path'] for row in self.rows if not row['dir']]
+        self.selected = set(paths)
+        for path in paths:
+            if self.tree.exists(path):
+                self.tree.selection_add(path)
+        self._refresh_marks()
         self._update_selection_label()
 
     def _update_selection_label(self):
@@ -426,7 +504,9 @@ class FileSheet(Sheet):
         if not path:
             return
         self.selected = {path}
-        self._sort_by(self._sort_key)
+        self._refresh_marks()
+        if self.tree.exists(path):
+            self.tree.selection_set(path)
         self._update_selection_label()
         self._update_info(path)
 
