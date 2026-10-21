@@ -48,8 +48,9 @@ class MainWindow:
         self._tasks = queue.Queue()
         self._pending_paths = []
         self._batch_windows = []
-        self._rail_width = 280     # 启动时的页面轨宽度
-        self.RAIL_MIN_WIDTH = 180  # 再窄就没法用了（下限，防止被挤没）
+        # 页面轨默认就是"一列的宽度"：一列页样放得下，右边不留空白
+        self._rail_width = 210
+        self.RAIL_MIN_WIDTH = 170  # 再窄就没法用了（下限，防止被挤没）
 
         if not os.environ.get('PDF_EDIT_BACKEND'):
             saved = load_backend()
@@ -236,7 +237,7 @@ class MainWindow:
         self._paned_pack = dict(fill='both', expand=True)
 
         # 请求宽度 = 目标宽度：分栏第一次分配时左栏就能拿到该有的宽度
-        left_frame = ttk.Frame(paned, width=280)
+        left_frame = ttk.Frame(paned, width=self._rail_width)
         # 宽度固定下来：ttk 的分栏会按"子控件的请求宽度"重新分配，
         # 轨道内容一窄，整栏就被压回去（打开文件时界面横向跳一下的元凶）。
         left_frame.pack_propagate(False)

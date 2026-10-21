@@ -509,16 +509,42 @@ def run(app):
         - 分栏自己重排（窗口尺寸变化）也不能把左栏弄没
         """
         rail = app._left_frame
-        check('启动后左栏有宽度', rail.winfo_width() >= 180,
+        floor = app.RAIL_MIN_WIDTH
+        check('启动后左栏有宽度', rail.winfo_width() >= floor,
               '左栏宽 {}'.format(rail.winfo_width()))
         app._paned.sashpos(0, 20)
         pump(app, 0.3)
-        check('左栏被压窄后拉回下限', rail.winfo_width() >= 180,
+        check('左栏被压窄后拉回下限', rail.winfo_width() >= floor,
               '左栏宽 {}'.format(rail.winfo_width()))
         app._paned.sashpos(0, 280)
         pump(app, 0.3)
-        check('宽度还能调回 280', rail.winfo_width() >= 180,
+        check('宽度还能调回 280', rail.winfo_width() >= floor,
               '左栏宽 {}'.format(rail.winfo_width()))
+
+    @step
+    def s11c_rail_columns():
+        """页面轨的列：默认一列，列宽要摊满（右边不留空白）。"""
+        rail = app.thumb_panel
+        # 先回到默认宽度（前面的步骤动过轨道）
+        app._paned.sashpos(0, app._rail_width)
+        pump(app, 0.4)
+        check('默认排一列', rail._cols == 1, '排了 {} 列'.format(rail._cols))
+        canvas_w = rail.canvas.winfo_width()
+        content_w = rail.inner.winfo_reqwidth()
+        check('单列时内容撑满轨道', abs(content_w - canvas_w) <= 12,
+              '内容 {} 画布 {}'.format(content_w, canvas_w))
+
+        # 拉宽 → 两列，且两列摊满
+        app._paned.sashpos(0, 365)
+        pump(app, 0.4)
+        check('拉宽后排两列', rail._cols == 2,
+              '排了 {} 列'.format(rail._cols))
+        content_w = rail.inner.winfo_reqwidth()
+        canvas_w = rail.canvas.winfo_width()
+        check('两列摊满轨道', abs(content_w - canvas_w) <= 12,
+              '内容 {} 画布 {}'.format(content_w, canvas_w))
+        app._paned.sashpos(0, 210)
+        pump(app, 0.4)
 
     @step
     def s11_layout_stable():

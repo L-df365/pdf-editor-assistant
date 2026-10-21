@@ -10,15 +10,18 @@ from gui.theme import (ACCENT, ACCENT_TINT, BG, INK_2, INK_3, LINE, MARKER,
 class ThumbnailPanel:
     """左侧页面轨：等宽页码列 + 缩略图，支持拖拽排序和右键菜单。
 
-    列数随宽度自适应，缩略图按可用宽度渲染（不再被裁切）。
+    布局规则：**列宽摊满可用宽度，列数由摊出来的宽度反推**。
+    以前是"宽度到某个档位就排 N 列"+"缩略图高度卡住"，两个限制叠在一起，
+    列只能往左挤，右边空一大块。现在列永远刚好排满，缩略图随宽度变大。
     """
 
-    THUMB_HEIGHT = 118     # 多列时的目标高度（像素）
-    THUMB_HEIGHT_ONE = 190  # 单列时放大：一条只放一个页样，看得清
+    CARD_TARGET = 150     # 一列的理想宽度（像素），列数按它反推
+    CARD_MIN = 110        # 一列的最小宽度：再窄缩略图就看不清了
+    CARD_MAX_COLS = 4     # 最多排四列
     CARD_GAP = 10
-    INDEX_WIDTH = 30       # 页码列宽
-    TWO_COL_MIN = 360      # 拉宽到这么宽才排两列（默认一列）
-    THREE_COL_MIN = 560
+    CARD_MARGIN = 8       # 卡片区左右留白
+    INDEX_WIDTH = 30      # 页码列宽
+    THUMB_MAX_HEIGHT = 230  # 缩略图最大高度（再高就没法一屏看几页了）
 
     def __init__(self, parent, on_select=None, on_reorder=None,
                  on_delete=None, on_rotate=None, on_insert_after=None):
@@ -120,11 +123,21 @@ class ThumbnailPanel:
         self._relayout_job = self.canvas.after(120, self._relayout)
 
     def _column_count(self, width):
-        if width >= self.THREE_COL_MIN:
-            return 3
-        if width >= self.TWO_COL_MIN:
-            return 2
-        return 1
+        """按可用宽度算能排几列。
+
+        不是"到某个档位就 N 列"：那样档位之间会空出一大块。
+        这里按理想列宽反推，取最接近的那个列数（1~4 列），
+        列宽再由可用宽度平均摊开 —— 右边不会剩空白。
+        """
+        usable = width - self.CARD_MARGIN * 2
+        if usable <= 0:
+            return 1
+        count = int(round((usable + self.CARD_GAP) /
+                          float(self.CARD_TARGET + self.CARD_GAP)))
+        # 别排得太挤：一列至少要 CARD_MIN 宽，否则缩略图看不清
+        while count > 1 and usable < count * (self.CARD_MIN + self.CARD_GAP):
+            count -= 1
+        return max(1, min(count, self.CARD_MAX_COLS))
 
     def _relayout(self):
         self._relayout_job = None
@@ -136,14 +149,14 @@ class ThumbnailPanel:
             return
         cols = self._column_count(width)
         gutter = self.CARD_GAP * (cols - 1)
-        # 右侧留够余量，别让最后一张卡片被滚动条压住一条边
-        available = (width - gutter - 18) / cols
+        # 每一列分到多宽：可用宽度摊开，右侧不留空白
+        available = (width - self.CARD_MARGIN * 2 - gutter) / cols
         changed = cols != self._cols
         self._cols = cols
 
         for i, card in enumerate(self.cards):
             page = card['page']
-            size = self._thumb_size(page, available, cols)
+            size = self._thumb_size(page, available)
             if changed or self._sizes.get(page) != size:
                 self._sizes[page] = size
                 self._render_thumb(card, size)
@@ -165,19 +178,22 @@ class ThumbnailPanel:
             return
         self.canvas.coords('inner', max(0, (canvas_w - inner_w) // 2), 0)
 
-    def _thumb_size(self, page, available, cols=2):
-        """按可用宽度与目标高度共同决定缩略图尺寸（保持比例）。"""
+    def _thumb_size(self, page, available):
+        """缩略图尺寸：宽度由列宽决定，高度按页面比例跟着走。
+
+        以前高度被卡死（118px），轨道一宽缩略图也长不大，
+        右边就空一块 —— 现在宽度说了算，只留一个高度上限兜底。
+        """
         try:
             page_w, page_h = self.doc.get_page_size(page)
         except Exception:
             page_w, page_h = 612.0, 792.0
         if page_w <= 0 or page_h <= 0:
             page_w, page_h = 612.0, 792.0
+        # 减掉页码列和卡片内边距，剩下的都给缩略图
         budget = max(available - self.INDEX_WIDTH - 12, 48)
-        by_width = budget
-        height_cap = self.THUMB_HEIGHT_ONE if cols == 1 else self.THUMB_HEIGHT
-        by_height = height_cap * page_w / page_h
-        return max(40, int(min(by_width, by_height)))
+        by_height = self.THUMB_MAX_HEIGHT * page_w / page_h
+        return max(40, int(min(budget, by_height)))
 
     def _render_thumb(self, card, target_width):
         from PIL import Image, ImageTk
