@@ -14,7 +14,7 @@ import time
 import tkinter as tk
 from tkinter import ttk
 
-from core import formats
+from core import formats, volumes
 from core.settings import load_recent
 from gui.feedback import Sheet
 from gui.widgets import Chip, FlatButton
@@ -80,6 +80,41 @@ class FileSheet(Sheet):
         self._build_body()
         self._build_footer(confirm_text)
         self._load_directory(self.cwd)
+        # 盯着 U 盘：插上/拔掉时把"常用位置"刷新
+        self._volume_sig = volumes.volume_signature()
+        self._watch_volumes()
+
+    # ------------------------------------------------------------------
+    # U 盘热插拔
+    # ------------------------------------------------------------------
+
+    def _watch_volumes(self):
+        """每隔两秒看一眼：U 盘插上了就把"常用位置"里加上。"""
+        self._volume_timer = self.after(2000, self._check_volumes)
+
+    def _check_volumes(self):
+        try:
+            signature = volumes.volume_signature()
+        except OSError:
+            signature = ()
+        if signature != self._volume_sig:
+            self._volume_sig = signature
+            self._refresh_locations()
+            # 正看着某个盘的目录、结果盘被拔了：退回上一级
+            if self.directory and not os.path.isdir(self.directory):
+                self._load_directory(self.cwd)
+        self._watch_volumes()
+
+    def destroy(self):
+        """关掉时把定时器停掉。"""
+        timer = getattr(self, '_volume_timer', None)
+        if timer is not None:
+            try:
+                self.after_cancel(timer)
+            except (tk.TclError, ValueError):
+                pass
+            self._volume_timer = None
+        super().destroy()
 
     # ------------------------------------------------------------------
     # 构建
@@ -213,7 +248,7 @@ class FileSheet(Sheet):
     # ------------------------------------------------------------------
 
     def _locations(self):
-        """常用位置：当前目录固定在最上面。"""
+        """常用位置：当前目录固定在最上面，外加桌面/下载/主目录和插着的 U 盘。"""
         places = []
         if self.folder_mode:
             places.append(('当前文件夹', self.cwd))
@@ -228,6 +263,9 @@ class FileSheet(Sheet):
                             ('主目录', HOME)):
             if os.path.isdir(path):
                 places.append((label, path))
+        # 插着的 U 盘 / 移动硬盘
+        for name, path in volumes.list_volumes():
+            places.append(('磁盘 {}'.format(name), path))
         return places
 
     def _refresh_locations(self):

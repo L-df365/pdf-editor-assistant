@@ -206,18 +206,19 @@ class ThumbnailPanel:
             # 画布还没布局好，等下一次 <Configure> 再排
             return
         usable = width - self.CARD_MARGIN * 2
+        # 先算"自适应"的样子（一列的理想宽度摊开后的缩略图大小）——
+        # 手动缩放的 100% 就是它，来回切换才连续
+        auto_cols = self._column_count(usable)
+        auto_gutter = self.CARD_GAP * (auto_cols - 1)
+        auto_available = (usable - auto_gutter) / auto_cols
+        base_size = max(auto_available - self.INDEX_WIDTH - 12, 48)
         if self._auto:
-            self._need_hscroll = False
-            # 自适应：按目标列宽算列数，再把可用宽度摊开，右侧不留空白
-            cols = self._column_count(usable)
-            gutter = self.CARD_GAP * (cols - 1)
-            available = (usable - gutter) / cols
+            cols = auto_cols
+            available = auto_available
         else:
-            # 手动缩放：缩略图大小 = 自适应一列的大小 × 倍率，
-            # 放不下就横向滚动（像浏览器的缩略图滑块）
-            base = max(usable - self.INDEX_WIDTH - 12, 48)
-            thumb = base * self._zoom
-            card_w = thumb + self.INDEX_WIDTH + 12
+            # 手动缩放：缩略图 = 自适应大小 × 倍率
+            size = base_size * self._zoom
+            card_w = size + self.INDEX_WIDTH + 12
             cols = max(1, int((usable + self.CARD_GAP) //
                               (card_w + self.CARD_GAP)))
             available = card_w

@@ -1069,6 +1069,75 @@ def run(app):
         check('能回到自适应', rail._auto and rail._sizes.get(0, 0) == size_auto,
               '{} {}'.format(rail._auto, rail._sizes.get(0, 0)))
 
+    @step
+    def s14g_zoom_baseline():
+        """缩放的基准：适应状态锁死 100%，+/- 是连续的小步。"""
+        preview = app.preview
+        rail = app.thumb_panel
+
+        # 适应宽度 / 适应页面：都显示 100%（实际比例随窗口变，不显示出来）
+        preview.zoom_choice.set_value('fit-width')
+        pump(app, 0.3)
+        check('适应宽度时滑块是 100%', preview.zoom_slider.get() == 100,
+              str(preview.zoom_slider.get()))
+        preview.zoom_choice.set_value('fit-page')
+        pump(app, 0.3)
+        check('适应页面时滑块也是 100%', preview.zoom_slider.get() == 100,
+              str(preview.zoom_slider.get()))
+
+        # 从适应状态点 +：只走一小步，不会突然跳出屏幕
+        preview.zoom_choice.set_value('fit-width')
+        pump(app, 0.3)
+        preview.zoom_slider._step_up()
+        pump(app, 0.3)
+        check('从适应状态 + 是连续的一小步',
+              preview.zoom_slider.get() == 105,
+              str(preview.zoom_slider.get()))
+        preview.zoom_slider._step_down()
+        pump(app, 0.2)
+
+        # 轨道：自适应 = 100%，滑块改的是缩略图大小
+        check('轨道自适应是 100% 基准',
+              rail._auto and rail.zoom_slider.get() == 100,
+              '{} {}'.format(rail._auto, rail.zoom_slider.get()))
+        size_auto = rail._sizes.get(0, 0)
+        rail._on_zoom(200)
+        pump(app, 0.4)
+        check('轨道 200% 是自适应大小的两倍',
+              abs(rail._sizes.get(0, 0) - size_auto * 2) <= 2,
+              '{} -> {}'.format(size_auto, rail._sizes.get(0, 0)))
+        rail._set_auto()
+        pump(app, 0.4)
+
+    @step
+    def s7f_volumes():
+        """U 盘要能在"常用位置"里看到。"""
+        from core import volumes
+        from gui.file_sheet import FileSheet
+
+        disks = volumes.list_volumes()
+        check('能探测到可移动磁盘', isinstance(disks, list), str(disks))
+        for name, path in disks:
+            check('磁盘路径是目录：{}'.format(name), os.path.isdir(path), path)
+        # 挂载点的父目录不算磁盘
+        for name, path in disks:
+            check('磁盘项不是别人的容器：{}'.format(name),
+                  not any(other != path and other.startswith(path + os.sep)
+                          for _, other in disks), path)
+
+        sheet = FileSheet(app.root, mode='insert', current_path=PDF,
+                          confirm_text='加入队列')
+        sheet._place(app.root)
+        pump(app, 0.3)
+        labels = [sheet.loc_tree.item(i, 'text')
+                  for i in sheet.loc_tree.get_children()]
+        for name, path in disks:
+            check('常用位置里有这块盘：{}'.format(name),
+                  any('磁盘' in text and name in text for text in labels),
+                  str(labels))
+        sheet.destroy()
+        pump(app, 0.2)
+
     def stepper():
         if not steps:
             print('\n===== 结果 =====')

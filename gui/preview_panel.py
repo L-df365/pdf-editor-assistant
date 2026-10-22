@@ -23,8 +23,8 @@ ZOOM_MODES = (
 )
 
 #: 手动缩放的范围（百分比）
-ZOOM_MIN = 25
-ZOOM_MAX = 400
+ZOOM_MIN = 10
+ZOOM_MAX = 600
 ZOOM_STEP = 5
 
 #: 瀑布流里页面之间的间距
@@ -48,7 +48,8 @@ class PreviewPanel:
         self._last_page = 0
         self._view = self.VIEW_FLOW
         self._mode = 'fit-width'      # fit-width / fit-page / 手动缩放值
-        self._zoom = 100              # 手动缩放（百分比）
+        self._zoom = 100              # 手动缩放（以适应状态为 100% 基准）
+        self._base_scale = 1.0        # 离开适应状态时的基准比例
         self._ready = False           # 控件还在建，先别响应滑块
         self._flow_layout = []        # [{'page','y','w','h'}]
         self._flow_photos = {}        # page → PhotoImage（只留视口附近的）
@@ -255,16 +256,21 @@ class PreviewPanel:
         self._update_zoom_label()
 
     def _on_zoom_slider(self, value):
-        """缩放滑块动了 → 手动缩放。"""
+        """缩放滑块动了 → 手动缩放。
+
+        滑块的值是"相对实际尺寸的百分比"，而适应模式下页面显示的比例
+        往往不是 100% —— 所以要先用视图的真实比例起步，
+        否则从"适应宽度"点一下 +，页面会突然缩掉一半。
+        """
         if not self._ready:
             return          # 控件还在建，先别动
         zoom = max(ZOOM_MIN, min(ZOOM_MAX, int(value)))
-        if zoom == self._zoom and self._mode == zoom:
+        if self._mode not in ('fit-width', 'fit-page') \
+                and zoom == self._zoom:
             return
         self._zoom = zoom
         self._mode = zoom
         self.zoom_choice.set_value('', notify=False)
-        self._update_zoom_label()
         self._render()
 
     def _on_view_choice(self, value):
@@ -281,9 +287,42 @@ class PreviewPanel:
             self.view_choice.set_value(view, notify=False)
             self._render()
 
+    def _fit_scale(self):
+        """适应模式下页面相对实际尺寸的缩放系数（1.95 = 195%）。"""
+        doc = self._last_doc
+        if not doc or not doc.doc:
+            return 1.0
+        try:
+            page_w, page_h = doc.get_page_size(self._last_page)
+        except Exception:
+            return 1.0
+        if self._mode == 'fit-page':
+            box = max(self._canvas_height - 48, 100)
+            return box / page_h if page_h else 1.0
+        box = max(self._canvas_width - 48, 100)
+        return box / page_w if page_w else 1.0
+
+    def _render_scale(self):
+        """实际渲染用的缩放系数（相对实际页面尺寸）。
+
+        手动缩放是**相对适应状态**的：适应宽度时是 100%，
+        滑到 150% 就是"适应宽度的 1.5 倍"。这样从适应切到手动不会跳。
+        """
+        if self._mode in ('fit-width', 'fit-page'):
+            return self._fit_scale()
+        return self._base_scale * (self._zoom / 100.0)
+
     def _update_zoom_label(self):
-        if getattr(self, 'zoom_slider', None) is not None:
-            self.zoom_slider.set_value(self._zoom, notify=False)
+        """滑块和百分比：始终以适应状态为 100% 基准。"""
+        slider = getattr(self, 'zoom_slider', None)
+        if slider is None:
+            return
+        if self._mode in ('fit-width', 'fit-page'):
+            # 适应状态就是 100% 基准；
+            # 记住离开适应状态时的比例，手动微调从这儿接着走
+            self._base_scale = self._fit_scale()
+            self._zoom = 100
+        slider.set_value(self._zoom, notify=False)
 
     def set_zoom(self, mode):
         """兼容旧的接口：'fit' / 1.0 / 2.0。"""
@@ -495,7 +534,7 @@ class PreviewPanel:
             pix, zoom = doc.get_page_image(page_num, max_width=max_w,
                                            max_height=max_h, fit_width=False)
         else:
-            zoom = float(self._mode) / 100.0
+            zoom = self._render_scale()
             pix = doc.get_page_at_zoom(page_num, zoom)
         img = Image.frombytes('RGB', [pix.width, pix.height], pix.samples)
         self.current_photo = ImageTk.PhotoImage(img)
@@ -556,8 +595,9 @@ class PreviewPanel:
                 page_w = width
                 page_h = page_w * (ph / pw)
             else:
-                page_w = pw * (self._zoom / 100.0)
-                page_h = ph * (self._zoom / 100.0)
+                scale = self._render_scale()
+                page_w = pw * scale
+                page_h = ph * scale
             items.append({'page': page, 'y': y, 'w': page_w, 'h': page_h})
             y += page_h + FLOW_GAP
         return items, y
