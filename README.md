@@ -26,7 +26,11 @@ per-file print settings.
   - Choose the position: after the current page / end of document / before a given page
 - 🔄 **Page operations** — rotate, delete, move to start, move to end
 - ↩️ **Undo / redo** — 5 steps of history, Ctrl+Z / Ctrl+Shift+Z
-- 👁️ **Real-time preview** — Fit / 50% / 100% / 200% zoom
+- 👁️ **Waterfall preview** (default) — all pages stacked vertically, like reading a
+  continuous document; drag to scroll, click a page to select it
+- 🔍 **Zoom slider** — fit width / fit page, or drag the slider (with -/+ buttons;
+  clicking the track jumps straight to that value)
+- 🔢 **Page jump** — type a page number and press Enter; ‹ › step page by page
 - 🗂️ **Built-in file panel** — pinned places, multi-select, type badges, recent files;
   folders are picked with the same hand-drawn panel
 - 💾 **Save** — Save / Save As
@@ -96,7 +100,7 @@ python3 main.py --print        # batch printing
 
 | File | What it shows |
 |---|---|
-| [Workbench](docs/ui/01-工作台.png) | Main window: top bar, page rail, stage, floating action bar |
+| [Workbench](docs/ui/01-工作台.png) | Main window: top bar, page rail, waterfall preview, floating action bar |
 | [Context menu](docs/ui/02-右键菜单.png) | Right-click menu with page-specific actions |
 | [Page rail](docs/ui/03-页面轨.png) | Thumbnail rail and scrollbar |
 | [File panel](docs/ui/04-文件面板.png) | File panel (multi-select + selection count) |
@@ -118,7 +122,7 @@ Print feature plan: [`docs/print-plan.md`](docs/print-plan.md)
 | `Ctrl+Z` / `Ctrl+Shift+Z` | Undo / redo |
 | `Ctrl+R` / `Ctrl+Shift+R` | Rotate clockwise / counter-clockwise |
 | `Ctrl+Shift+↑` / `Ctrl+Shift+↓` | Move to start / end |
-| `Ctrl+0` / `1` / `2` | Fit / 100% / 200% zoom |
+| `Ctrl+0` / `Ctrl+1` / `Ctrl+2` | Fit width / fit page / actual size |
 | `Ctrl+Shift+I` | Page info |
 | `Ctrl+,` | Conversion backend settings |
 | `Delete` | Delete the current page |
@@ -261,7 +265,7 @@ pdf-editor-assistant/
 │   ├── design-system.md # Design system
 │   ├── print-plan.md    # Print feature plan
 │   └── ui/              # Screenshots
-└── tools/uitest.py      # UI self-test: synthesised real mouse events (91 checks)
+└── tools/uitest.py      # UI self-test: synthesised real mouse events (119 checks)
 ```
 
 ---
@@ -285,6 +289,7 @@ and Pillow.
 
 - [x] Batch insert multiple files (multi-select in the file panel)
 - [x] Undo / redo
+- [x] Waterfall preview + zoom slider + page jump
 - [x] Print the current document (colour, duplex, copies, paper, scaling, N-up, page ranges)
 - [x] Batch printing (multi-file queue, per-file overrides, pause/cancel/retry, failure isolation)
 - [ ] Automatic job merge/split, print templates, print history

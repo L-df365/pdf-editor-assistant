@@ -381,6 +381,11 @@ def _configure_styles(style):
          troughcolor=LINE_SOFT, bordercolor=LINE_SOFT, lightcolor=ACCENT,
          darkcolor=ACCENT, borderwidth=0, thickness=4, relief='flat')
 
+    # 滑块（缩放条）：轨道浅、滑块墨青，和整体一套
+    _set(style, 'Horizontal.TScale', background=LINE, troughcolor=LINE_SOFT,
+         bordercolor=LINE_SOFT, lightcolor=ACCENT, darkcolor=ACCENT,
+         borderwidth=0, relief='flat')
+
     # 列表 / 树
     _set(style, 'Treeview', background=PAPER, fieldbackground=PAPER,
          foreground=INK, bordercolor=LINE, lightcolor=LINE, darkcolor=LINE,

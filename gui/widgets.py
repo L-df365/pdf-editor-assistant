@@ -6,6 +6,7 @@ ttk 画不出圆角（clam 主题只有方角），所以可见的操作按钮�
 
 import tkinter as tk
 from tkinter import font as tkfont
+from tkinter import ttk
 
 from gui.draw import rounded_photo
 from gui.theme import (ACCENT, ACCENT_DEEP, ACCENT_TINT, DANGER, DANGER_DEEP,
@@ -279,6 +280,123 @@ class Segmented(tk.Frame):
         button = self._buttons.get(value)
         if button is not None:
             button.configure_state(not disabled)
+
+
+class ZoomSlider(tk.Frame):
+    """缩放滑块：两侧 -/+，点滑轨直接跳到那个倍率。
+
+    ttk.Scale 默认点滑轨只是"翻一格"，这里改成点哪就是哪；
+    按住拖动也能连续调。
+    """
+
+    def __init__(self, parent, from_=25, to=400, value=100, step=5,
+                 command=None, bg=None, length=130, show_value=True,
+                 width=22):
+        super().__init__(parent, bg=bg or bg_of(parent))
+        self._from = int(from_)
+        self._to = int(to)
+        self._step = int(step)
+        self._command = command
+        self._value = int(value)
+        self._dragging = False
+
+        self.minus = FlatButton(self, '-', command=self._step_down,
+                                variant='segment', bg=self.cget('bg'),
+                                width=width)
+        self.minus.pack(side='left')
+
+        self.scale = ttk.Scale(self, from_=self._from, to=self._to,
+                               orient='horizontal', length=length,
+                               command=self._on_scale)
+        self.scale.pack(side='left', padx=2)
+        self.scale.bind('<Button-1>', self._on_press)
+        self.scale.bind('<B1-Motion>', self._on_drag)
+        self.scale.bind('<ButtonRelease-1>', self._on_release)
+        self.scale.set(self._value)
+
+        self.plus = FlatButton(self, '+', command=self._step_up,
+                               variant='segment', bg=self.cget('bg'),
+                               width=width)
+        self.plus.pack(side='left', padx=(2, 0))
+
+        self.label = None
+        if show_value:
+            self.label = tk.Label(self, text=self._text(), bg=self.cget('bg'),
+                                  fg=INK_2, font=font('num'), width=5,
+                                  anchor='e')
+            self.label.pack(side='left', padx=(4, 0))
+
+    # ------------------------------------------------------------------
+
+    def _text(self):
+        return '{}%'.format(self._value)
+
+    def _on_scale(self, value):
+        """滑块被拖动（可能来自 set）。"""
+        try:
+            new = int(round(float(value)))
+        except (TypeError, ValueError):
+            return
+        new = max(self._from, min(self._to, new))
+        if new == self._value:
+            return
+        self._value = new
+        if self.label is not None:
+            self.label.configure(text=self._text())
+        if self._command:
+            self._command(self._value)
+
+    def _value_at(self, x):
+        """按点击位置算倍率（滑轨两端是头部的中心）。"""
+        width = max(self.scale.winfo_width(), 1)
+        head = 16
+        usable = max(width - head, 1)
+        frac = (x - head / 2.0) / usable
+        frac = max(0.0, min(1.0, frac))
+        return int(round(self._from + frac * (self._to - self._from)))
+
+    def _on_press(self, event):
+        self._dragging = True
+        self.set_value(self._value_at(event.x), notify=True)
+
+    def _on_drag(self, event):
+        if not self._dragging:
+            return
+        self.set_value(self._value_at(event.x), notify=True)
+
+    def _on_release(self, event):
+        self._dragging = False
+
+    def _step_up(self):
+        self.set_value(self._value + self._step, notify=True)
+
+    def _step_down(self):
+        self.set_value(self._value - self._step, notify=True)
+
+    # ------------------------------------------------------------------
+
+    def get(self):
+        return self._value
+
+    def set_value(self, value, notify=True):
+        value = max(self._from, min(self._to, int(value)))
+        changed = value != self._value
+        self._value = value
+        try:
+            self.scale.set(value)
+        except tk.TclError:
+            pass
+        if self.label is not None:
+            self.label.configure(text=self._text())
+        if notify and changed and self._command:
+            self._command(value)
+        return self
+
+    def set_range(self, from_, to):
+        self._from = int(from_)
+        self._to = int(to)
+        self.scale.configure(from_=self._from, to=self._to)
+        self.set_value(self._value, notify=False)
 
 
 class Chip(tk.Canvas):

@@ -1,8 +1,9 @@
 import tkinter as tk
 from tkinter import ttk
 
+from gui.feedback import attach_tooltip
 from gui.menu import MenuPopover, build
-from gui.widgets import RoundedCard
+from gui.widgets import FlatButton, RoundedCard, ZoomSlider
 from gui.theme import (ACCENT, ACCENT_TINT, BG, INK_2, INK_3, LINE, MARKER,
                         PAPER, SURFACE, font)
 
@@ -23,6 +24,12 @@ class ThumbnailPanel:
     INDEX_WIDTH = 30      # 页码列宽
     THUMB_MAX_HEIGHT = 230  # 缩略图最大高度（再高就没法一屏看几页了）
 
+    #: 轨道缩放条的范围（100% = 自适应的大小）
+    RAIL_ZOOM_MIN = 30
+    RAIL_ZOOM_MAX = 250
+    RAIL_ZOOM_STEP = 10
+
+
     def __init__(self, parent, on_select=None, on_reorder=None,
                  on_delete=None, on_rotate=None, on_insert_after=None):
         self.frame = ttk.Frame(parent, style='Surface.TFrame')
@@ -41,6 +48,8 @@ class ThumbnailPanel:
         self._cols = 1
         self._sizes = {}
         self._relayout_job = None
+        self._auto = True      # 自适应：缩略图跟着窗口宽度走
+        self._zoom = 1.0       # 手动缩放倍率
 
         canvas_frame = ttk.Frame(self.frame, style='Surface.TFrame')
         canvas_frame.pack(fill='both', expand=True)
@@ -53,6 +62,10 @@ class ThumbnailPanel:
         self.scrollbar = ttk.Scrollbar(
             canvas_frame, orient='vertical', command=self.canvas.yview,
             )
+        # 横向滚动条：手动放大缩略图时内容会宽过轨道，得能拖着看
+        self.hscrollbar = ttk.Scrollbar(
+            canvas_frame, orient='horizontal', command=self.canvas.xview,
+            )
         self.inner = tk.Frame(self.canvas, bg=SURFACE)
         # 空轨提示：直接挂在画布上并居中，不要跟着内容滚动
         self.hint = tk.Label(self.canvas, text='打开文档后\n这里显示页样',
@@ -62,14 +75,17 @@ class ThumbnailPanel:
         self.inner.bind('<Configure>', self._on_inner_configure)
         self.canvas.create_window((0, 0), window=self.inner, anchor='nw',
                                   tags='inner')
-        self.canvas.configure(yscrollcommand=self.scrollbar.set)
+        self.canvas.configure(yscrollcommand=self.scrollbar.set,
+                              xscrollcommand=self.hscrollbar.set)
 
-        # 顺序要紧：先占住右侧 14px 给滚动条，再让画布吃掉剩下的宽度。
-        # 反过来（先 pack 画布）画布会撑满整行，滚动条压在内容上。
-        self.scrollbar.pack(side='right', fill='y')
-        self.canvas.pack(side='left', fill='both', expand=True)
+        # 用 grid：滚动条的位置是确定的，反复显示/隐藏才不会把画布挤歪
+        self.canvas.grid(row=0, column=0, sticky='nsew')
+        self.scrollbar.grid(row=0, column=1, sticky='ns')
+        self.hscrollbar.grid(row=1, column=0, sticky='ew')
+        canvas_frame.rowconfigure(0, weight=1)
+        canvas_frame.columnconfigure(0, weight=1)
         self._context_menu = MenuPopover(self.frame, [])
-
+        self._build_zoom_bar()
         self.canvas.bind('<Configure>', self._on_canvas_resize)
         self.canvas.bind('<Button-1>', self._on_canvas_click)
         self.canvas.bind('<Button-4>',
@@ -122,14 +138,49 @@ class ThumbnailPanel:
                 pass
         self._relayout_job = self.canvas.after(120, self._relayout)
 
+    def _build_zoom_bar(self):
+        """轨道自己的缩放条：自适应（默认，跟着窗口宽度）+ 手动倍率。"""
+        bar = tk.Frame(self.frame, bg=SURFACE)
+        bar.pack(fill='x', side='bottom')
+        ttk.Separator(self.frame, orient='horizontal').pack(fill='x',
+                                                            side='bottom')
+        self.auto_button = FlatButton(bar, '自适应', command=self._set_auto,
+                                      variant='segment-on', bg=SURFACE,
+                                      width=46)
+        self.auto_button.pack(side='left', padx=(6, 2), pady=4)
+        # 轨道太窄，百分比就不显示了（悬停滑块能看到）
+        self.zoom_slider = ZoomSlider(
+            bar, from_=self.RAIL_ZOOM_MIN, to=self.RAIL_ZOOM_MAX, value=100,
+            step=self.RAIL_ZOOM_STEP, bg=SURFACE, length=64, width=18,
+            show_value=False, command=self._on_zoom)
+        self.zoom_slider.pack(side='left', padx=(0, 4))
+        self._zoom_tip = attach_tooltip(
+            self.zoom_slider.scale, '缩略图缩放：{}/{}（自适应=100%）'.format(
+                self.RAIL_ZOOM_MIN, self.RAIL_ZOOM_MAX))
+
+    def _set_auto(self):
+        """回到自适应：缩略图按窗口宽度自动排。"""
+        self._auto = True
+        self.auto_button.set_variant('segment-on')
+        self.zoom_slider.set_value(100, notify=False)
+        self._schedule_relayout()
+
+    def _on_zoom(self, value):
+        """手动缩放缩略图。"""
+        self._auto = False
+        self.auto_button.set_variant('segment')
+        self._zoom = (max(self.RAIL_ZOOM_MIN,
+                         min(self.RAIL_ZOOM_MAX, value)) / 100.0)
+        self._schedule_relayout()
+
     def _column_count(self, width):
-        """按可用宽度算能排几列。
+        """按可用宽度算能排几列（自适应模式下用）。
 
         不是"到某个档位就 N 列"：那样档位之间会空出一大块。
         这里按理想列宽反推，取最接近的那个列数（1~4 列），
         列宽再由可用宽度平均摊开 —— 右边不会剩空白。
         """
-        usable = width - self.CARD_MARGIN * 2
+        usable = width
         if usable <= 0:
             return 1
         count = int(round((usable + self.CARD_GAP) /
@@ -139,6 +190,13 @@ class ThumbnailPanel:
             count -= 1
         return max(1, min(count, self.CARD_MAX_COLS))
 
+    def _sync_hscrollbar(self):
+        """放大到内容比轨道宽时，显示横向滚动条。"""
+        if getattr(self, '_need_hscroll', False):
+            self.hscrollbar.grid()
+        else:
+            self.hscrollbar.grid_remove()
+
     def _relayout(self):
         self._relayout_job = None
         if not self.doc or not self.doc.doc:
@@ -147,16 +205,31 @@ class ThumbnailPanel:
         if width < 120:
             # 画布还没布局好，等下一次 <Configure> 再排
             return
-        cols = self._column_count(width)
-        gutter = self.CARD_GAP * (cols - 1)
-        # 每一列分到多宽：可用宽度摊开，右侧不留空白
-        available = (width - self.CARD_MARGIN * 2 - gutter) / cols
+        usable = width - self.CARD_MARGIN * 2
+        if self._auto:
+            self._need_hscroll = False
+            # 自适应：按目标列宽算列数，再把可用宽度摊开，右侧不留空白
+            cols = self._column_count(usable)
+            gutter = self.CARD_GAP * (cols - 1)
+            available = (usable - gutter) / cols
+        else:
+            # 手动缩放：缩略图大小 = 自适应一列的大小 × 倍率，
+            # 放不下就横向滚动（像浏览器的缩略图滑块）
+            base = max(usable - self.INDEX_WIDTH - 12, 48)
+            thumb = base * self._zoom
+            card_w = thumb + self.INDEX_WIDTH + 12
+            cols = max(1, int((usable + self.CARD_GAP) //
+                              (card_w + self.CARD_GAP)))
+            available = card_w
+            # 放大到放不下时才需要横向滚动条（按算出来的宽度判断，
+            # 不去量控件宽度 —— 那时候布局还没算完，量出来是旧值）
+            self._need_hscroll = card_w > usable
         changed = cols != self._cols
         self._cols = cols
 
         for i, card in enumerate(self.cards):
             page = card['page']
-            size = self._thumb_size(page, available)
+            size = self._thumb_size(page, available, cap=self._auto)
             if changed or self._sizes.get(page) != size:
                 self._sizes[page] = size
                 self._render_thumb(card, size)
@@ -166,6 +239,9 @@ class ThumbnailPanel:
                                pady=4)
         self._center_inner()
         self._sync_scrollbar()
+        self._sync_hscrollbar()
+        # 卡片尺寸是网格算完才定的，等空闲再核一次横向滚动条
+        self.canvas.after_idle(self._sync_hscrollbar)
 
     def _center_inner(self):
         """单列时把整列内容居中：右边空一大块会显得没做完。"""
@@ -178,11 +254,12 @@ class ThumbnailPanel:
             return
         self.canvas.coords('inner', max(0, (canvas_w - inner_w) // 2), 0)
 
-    def _thumb_size(self, page, available):
+    def _thumb_size(self, page, available, cap=True):
         """缩略图尺寸：宽度由列宽决定，高度按页面比例跟着走。
 
         以前高度被卡死（118px），轨道一宽缩略图也长不大，
         右边就空一块 —— 现在宽度说了算，只留一个高度上限兜底。
+        手动缩放时不套这个上限（否则放大两倍只涨一点点）。
         """
         try:
             page_w, page_h = self.doc.get_page_size(page)
@@ -192,6 +269,8 @@ class ThumbnailPanel:
             page_w, page_h = 612.0, 792.0
         # 减掉页码列和卡片内边距，剩下的都给缩略图
         budget = max(available - self.INDEX_WIDTH - 12, 48)
+        if not cap:
+            return max(40, int(budget))
         by_height = self.THUMB_MAX_HEIGHT * page_w / page_h
         return max(40, int(min(budget, by_height)))
 
@@ -418,6 +497,27 @@ class ThumbnailPanel:
             self._paint_card(self.cards[page_num], True)
         if callback and self.on_select:
             self.on_select(page_num)
+
+    def scroll_to_page(self, page_num, center=True):
+        """把某一页滚到可视区。
+
+        默认居中：跟着右边预览滚动时，当前页的缩略图始终在眼前。
+        内容不够一屏时不滚（滚了也没地方去）。
+        """
+        if not (0 <= page_num < len(self.cards)):
+            return
+        card = self.cards[page_num]['frame']
+        view_h = self.canvas.winfo_height()
+        total = self.inner.winfo_reqheight()
+        if view_h <= 1 or total <= view_h:
+            return                      # 页面不够多，铺不满，不用滚
+        y = card.winfo_y()
+        h = card.winfo_height()
+        if center:
+            target = y + h / 2 - view_h / 2
+        else:
+            target = y - h
+        self.canvas.yview_moveto(max(0.0, min(1.0, target / float(total))))
 
     def _paint_card(self, card, active):
         if active:

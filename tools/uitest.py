@@ -857,6 +857,218 @@ def run(app):
         wheels = installer.bundled_wheels()
         check('随应用带了预编译包', bool(wheels), 'wheels/ 是空的')
 
+    @step
+    def s14_preview_flow():
+        """新的预览区：默认瀑布流、缩放滑块、页码跳转。"""
+        preview = app.preview
+        check('默认是瀑布流视图', preview._view == preview.VIEW_FLOW,
+              preview._view)
+        check('默认是适应宽度', preview._mode == 'fit-width', preview._mode)
+        check('瀑布流排好了每页', len(preview._flow_layout) == app.doc.page_count,
+              str(len(preview._flow_layout)))
+        check('渲染了视口附近的页', len(preview._flow_photos) >= 1,
+              str(len(preview._flow_photos)))
+
+        # 缩放滑块 → 手动缩放
+        preview.zoom_slider.set_value(50)
+        pump(app, 0.4)
+        check('滑块切到手动缩放', preview._mode == 50, str(preview._mode))
+        check('滑块后缩放跟着变', preview._zoom == 50, str(preview._zoom))
+        preview.zoom_choice.set_value('fit-width')
+        pump(app, 0.3)
+        check('能切回适应宽度', preview._mode == 'fit-width', preview._mode)
+
+        # 页码跳转
+        preview.page_entry.focus_force()
+        pump(app, 0.1)
+        preview.page_entry.delete(0, 'end')
+        preview.page_entry.insert(0, '10')
+        preview.page_entry.event_generate('<KeyPress-Return>')
+        pump(app, 0.4)
+        check('页码框能跳转', app.current_page == 9,
+              '当前页 {}'.format(app.current_page + 1))
+        check('跳转后计数跟着变',
+              preview.counter.cget('text').startswith('10'),
+              preview.counter.cget('text'))
+
+        # 上一页 / 下一页
+        preview.next_button.event_generate('<Button-1>')
+        preview.next_button.event_generate('<ButtonRelease-1>')
+        pump(app, 0.3)
+        check('能翻到下一页', app.current_page == 10,
+              '当前页 {}'.format(app.current_page + 1))
+        preview.prev_button.event_generate('<Button-1>')
+        preview.prev_button.event_generate('<ButtonRelease-1>')
+        pump(app, 0.3)
+        check('能翻回上一页', app.current_page == 9,
+              '当前页 {}'.format(app.current_page + 1))
+
+        # 越界不跳
+        preview.page_entry.focus_force()
+        pump(app, 0.1)
+        preview.page_entry.delete(0, 'end')
+        preview.page_entry.insert(0, '999')
+        preview.page_entry.event_generate('<KeyPress-Return>')
+        pump(app, 0.3)
+        check('页码越界不乱跳', app.current_page == 9,
+              '当前页 {}'.format(app.current_page + 1))
+        preview.set_view(preview.VIEW_FLOW)
+        pump(app, 0.2)
+
+    @step
+    def s14b_flow_scroll():
+        """瀑布流：滚动要自动加载页面，跳转要滚到那一页。"""
+        preview = app.preview
+        preview.set_view(preview.VIEW_FLOW)
+        preview.zoom_slider.set_value(35)
+        pump(app, 0.4)
+        preview.canvas.yview_moveto(0)      # 先回到顶部
+        pump(app, 0.3)
+        before = set(preview._flow_photos)
+        # 往下滚 → 视口附近的页要跟着加载
+        for _ in range(6):
+            preview._wheel_down()
+            pump(app, 0.15)
+        after = set(preview._flow_photos)
+        check('滚动会加载新页面', bool(after - before),
+              '滚动前后 {}'.format(sorted(before)))
+        check('滚动的页在视口附近',
+              preview.canvas.canvasy(0) > 0, '视图没动')
+
+        # 跳到某一页 → 视图要滚过去
+        preview.page_entry.focus_force()
+        pump(app, 0.1)
+        preview.page_entry.delete(0, 'end')
+        preview.page_entry.insert(0, '18')
+        preview.page_entry.event_generate('<KeyPress-Return>')
+        pump(app, 0.5)
+        check('跳转后视图滚到那一页', app.current_page == 17,
+              '当前页 {}'.format(app.current_page + 1))
+        visible = [item['page'] for item in preview._flow_layout
+                   if item['y'] <= preview.canvas.canvasy(0) + 400
+                   and item['y'] + item['h'] >= preview.canvas.canvasy(0)]
+        check('跳转后那一页在视口里', 17 in visible, str(visible))
+
+    @step
+    def s14c_flow_drag():
+        """瀑布流：可以按住拖动来翻页（像别的 PDF 软件那样）。"""
+        preview = app.preview
+        preview.set_view(preview.VIEW_FLOW)
+        preview.zoom_slider.set_value(35)
+        pump(app, 0.4)
+        preview.canvas.yview_moveto(0)
+        pump(app, 0.3)
+        start_top = preview.canvas.canvasy(0)
+        x = preview.canvas.winfo_width() // 2
+        y = preview.canvas.winfo_height() // 2
+        preview.canvas.event_generate('<ButtonPress-1>', x=x, y=y)
+        pump(app, 0.1)
+        for step in range(1, 6):
+            preview.canvas.event_generate('<B1-Motion>', x=x, y=y - step * 30)
+            pump(app, 0.08)
+        preview.canvas.event_generate('<ButtonRelease-1>', x=x, y=y - 150)
+        pump(app, 0.3)
+        check('拖动可以翻页', preview.canvas.canvasy(0) > start_top + 50,
+              '视图从 {} 变成 {}'.format(round(start_top),
+                                    round(preview.canvas.canvasy(0))))
+        check('拖动后加载了新的页', len(preview._flow_photos) >= 1,
+              str(len(preview._flow_photos)))
+
+    @step
+    def s14d_flow_follow():
+        """瀑布流滚动时：当前页跟着走，页面轨的缩略图也跟着走。"""
+        preview = app.preview
+        rail = app.thumb_panel
+        preview.set_view(preview.VIEW_FLOW)
+        preview.zoom_slider.set_value(30)
+        pump(app, 0.4)
+        preview.canvas.yview_moveto(0)
+        pump(app, 0.3)
+        before_page = app.current_page
+
+        for _ in range(8):
+            preview._wheel_down()
+            pump(app, 0.1)
+        check('滚动后当前页跟着走', app.current_page != before_page,
+              '还是第 {} 页'.format(app.current_page + 1))
+
+        # 页面轨要把当前页的缩略图滚到可视区
+        card = rail.cards[app.current_page]['frame']
+        top = rail.canvas.canvasy(0)
+        view_h = rail.canvas.winfo_height()
+        centre = top + view_h // 2
+        check('当前页缩略图在轨道可视区里',
+              card.winfo_y() + card.winfo_height() > top
+              and card.winfo_y() < top + view_h,
+              '缩略图 y={} 可视区 {}-{}'.format(card.winfo_y(), top,
+                                              top + view_h))
+        check('当前页缩略图接近轨道中间',
+              abs((card.winfo_y() + card.winfo_height() // 2) - centre) < 400,
+              '缩略图中线 {} 轨道中线 {}'.format(
+                  card.winfo_y() + card.winfo_height() // 2, centre))
+
+    @step
+    def s14e_jump_survives_redraw():
+        """页码框里正在打的字，不能被后台重绘冲掉。"""
+        preview = app.preview
+        preview.set_view(preview.VIEW_FLOW)
+        pump(app, 0.3)
+        preview.page_entry.focus_force()
+        pump(app, 0.1)
+        preview.page_entry.delete(0, 'end')
+        preview.page_entry.insert(0, '15')
+        pump(app, 0.2)
+        # 触发一次重绘（滚动就会重绘）
+        preview._wheel_down()
+        pump(app, 0.3)
+        check('重绘没有冲掉正在输入的页码',
+              preview.page_entry.get().strip() == '15',
+              '框里是 {}'.format(repr(preview.page_entry.get())))
+        preview.page_entry.event_generate('<KeyPress-Return>')
+        pump(app, 0.4)
+        check('按回车跳到了那一页', app.current_page == 14,
+              '当前页 {}'.format(app.current_page + 1))
+
+    @step
+    def s14f_zoom_controls():
+        """缩放控件：滑块可点（跳到对应倍率）、有 +/-、轨道侧也有。"""
+        preview = app.preview
+        # 点滑轨 → 直接跳到那一格
+        width = preview.zoom_slider.scale.winfo_width()
+        preview.zoom_slider.scale.event_generate(
+            '<ButtonPress-1>', x=int(width * 0.75), y=8)
+        preview.zoom_slider.scale.event_generate(
+            '<ButtonRelease-1>', x=int(width * 0.75), y=8)
+        pump(app, 0.3)
+        check('点滑轨能跳到对应倍率', preview._zoom > 250,
+              str(preview._zoom))
+        check('跳过去后切成手动缩放', preview._mode == preview._zoom,
+              str(preview._mode))
+
+        # +/- 按钮
+        before = preview._zoom
+        preview.zoom_slider._step_up()
+        pump(app, 0.2)
+        check('+ 按钮能放大', preview._zoom == before + 5,
+              '{} -> {}'.format(before, preview._zoom))
+        preview.zoom_slider._step_down()
+        pump(app, 0.2)
+        check('- 按钮能缩小', preview._zoom == before, str(preview._zoom))
+
+        # 轨道侧：默认自适应，滑块改缩略图大小
+        rail = app.thumb_panel
+        check('轨道默认自适应', rail._auto, str(rail._auto))
+        size_auto = rail._sizes.get(0, 0)
+        rail._on_zoom(200)
+        pump(app, 0.4)
+        check('轨道滑块能放大缩略图',
+              rail._sizes.get(0, 0) > size_auto * 1.5,
+              '{} -> {}'.format(size_auto, rail._sizes.get(0, 0)))
+        rail._set_auto()
+        pump(app, 0.4)
+        check('能回到自适应', rail._auto and rail._sizes.get(0, 0) == size_auto,
+              '{} {}'.format(rail._auto, rail._sizes.get(0, 0)))
+
     def stepper():
         if not steps:
             print('\n===== 结果 =====')

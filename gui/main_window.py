@@ -132,6 +132,10 @@ class MainWindow:
             ('打印…', self.print_document, accel_label('Ctrl+P')),
             ('批量打印…', self.open_batch_print),
             None,
+            ('瀑布流视图', lambda: self.preview.set_view('flow'),
+             accel_label('Ctrl+Shift+V')),
+            ('单页视图', lambda: self.preview.set_view('single')),
+            None,
             ('页面信息…', self._show_page_info, accel_label('Ctrl+Shift+I')),
             None,
             ('退出', self._on_close, accel_label('Ctrl+Q')),
@@ -173,9 +177,9 @@ class MainWindow:
 
     def _show_more_menu(self):
         items = build([
-            ('适应页面', lambda: self.preview.set_zoom('fit'), 'Ctrl+0'),
-            ('实际大小 100%', lambda: self.preview.set_zoom(1.0), 'Ctrl+1'),
-            ('放大 200%', lambda: self.preview.set_zoom(2.0), 'Ctrl+2'),
+            ('适应宽度', lambda: self.preview.set_zoom('fit-width'), 'Ctrl+0'),
+            ('适应页面', lambda: self.preview.set_zoom('fit-page'), 'Ctrl+1'),
+            ('实际大小 100%', lambda: self.preview.set_zoom(1.0), 'Ctrl+2'),
             None,
             ('页面信息…', self._show_page_info, 'Ctrl+Shift+I'),
             ('重新载入文件', self._reload_document),
@@ -275,7 +279,8 @@ class MainWindow:
             on_export=lambda: self._export_current_page(self.current_page),
             on_undo=self.undo,
             on_redo=self.redo,
-            on_print=self.print_current_page)
+            on_print=self.print_current_page,
+            on_page_change=self._on_page_select)
         self.preview.pack(fill='both', expand=True)
         paned.add(right_frame, weight=1)
         self._show_empty(True)
@@ -736,9 +741,9 @@ class MainWindow:
         bind('<Control-Shift-R>', lambda e: self.rotate_page(-90))
         bind('<Control-Shift-Up>', lambda e: self._move_current_page(0))
         bind('<Control-Shift-Down>', lambda e: self._move_current_page(-1))
-        bind('<Control-0>', lambda e: self.preview.set_zoom('fit'))
-        bind('<Control-1>', lambda e: self.preview.set_zoom(1.0))
-        bind('<Control-2>', lambda e: self.preview.set_zoom(2.0))
+        bind('<Control-0>', lambda e: self.preview.set_zoom('fit-width'))
+        bind('<Control-1>', lambda e: self.preview.set_zoom('fit-page'))
+        bind('<Control-2>', lambda e: self.preview.set_zoom(1.0))
         bind('<Control-Shift-I>', lambda e: self._show_page_info())
         bind('<Control-comma>', lambda e: self._open_backend_dialog())
         bind('<Control-p>', lambda e: self.print_document())
@@ -985,6 +990,8 @@ class MainWindow:
         self.preview.set_last(self.doc, page_num)
         self.preview.show_page(self.doc, page_num)
         self.thumb_panel.select_page(page_num)
+        # 页面轨跟着走：当前页的缩略图滚到可视区中间
+        self.thumb_panel.scroll_to_page(page_num)
 
     def _on_page_select(self, page_num):
         self._show_page(page_num)
