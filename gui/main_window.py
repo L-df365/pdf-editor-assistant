@@ -10,7 +10,7 @@ from core.backends import installer
 from core.pdf_document import PDFDocument
 from core.settings import load_backend, load_recent, save_backend
 from gui.backend_dialog import BackendDialog
-from core import formats
+from core import formats, naming
 from core.settings import push_recent
 from gui.feedback import ConfirmPanel, ErrorPanel, InfoPanel, toast
 from gui.empty_state import EmptyState
@@ -249,11 +249,13 @@ class MainWindow:
         self._left_frame = left_frame
         self.thumb_panel = ThumbnailPanel(
             left_frame,
-            on_select=self._on_page_select,
+            on_select=self._on_rail_select,
             on_reorder=self._on_reorder,
             on_delete=self._on_delete_page,
             on_rotate=self._on_rotate_page,
             on_insert_after=self._on_insert_after,
+            on_extract=self._extract_pages,
+            on_split=self._split_pages,
         )
         self.thumb_panel.pack(fill='both', expand=True)
         self.thumb_panel.load_document(None)
@@ -281,6 +283,7 @@ class MainWindow:
             on_undo=self.undo,
             on_redo=self.redo,
             on_print=self.print_current_page,
+            on_split=lambda: self._split_pages(),
             on_page_change=self._on_page_select)
         self.preview.pack(fill='both', expand=True)
         paned.add(right_frame, weight=1)
@@ -858,14 +861,51 @@ class MainWindow:
 
     def split_document(self):
         """把一个 PDF 拆成多个文件（拆法、命名都在面板里定）。"""
+        self._split_pages()
+
+    def _split_pages(self, pages=None):
+        """拆分。pages 是缩略图里选中的页（0 起算），带进面板预填范围。"""
         if not self.doc.doc:
             toast(self.root, '还没有打开文档', 'warn')
             return
         from gui.split_sheet import SplitSheet
-        sheet = SplitSheet(self.root, self.doc)
+        sheet = SplitSheet(self.root, self.doc, pages=pages)
         report = sheet.wait(self.root)
         if report:
             self._update_status('已拆成 {} 个文件'.format(report.count))
+
+    def _extract_pages(self, pages):
+        """把缩略图里选中的页提取成一个新文件（原文档不动）。"""
+        if not self.doc.doc:
+            toast(self.root, '还没有打开文档', 'warn')
+            return
+        pages = [int(page) for page in pages]
+        if not pages:
+            toast(self.root, '先选几页', 'warn')
+            return
+        directory = os.path.dirname(self.doc.filepath) \
+            if self.doc.filepath else HOME_DIR
+        path = filedialog.asksaveasfilename(
+            parent=self.root,
+            title='提取 {} 页为新文件'.format(len(pages)),
+            initialdir=directory,
+            initialfile=naming.extract_name(self.doc.filepath,
+                                            [page + 1 for page in pages]),
+            defaultextension='.pdf',
+            filetypes=[('PDF 文件', '*.pdf')])
+        if not path:
+            return
+        try:
+            count = self.doc.extract_pages(pages, path)
+        except Exception as e:
+            ErrorPanel.show(self.root, '提取失败',
+                            '这些页面没能写成新文件。',
+                            detail=str(e))
+            self._update_status('提取失败')
+            return
+        name = os.path.basename(path)
+        toast(self.root, '已提取 {} 页 → {}'.format(count, name), 'ok')
+        self._update_status('已提取 {} 页 → {}'.format(count, name))
 
     def open_batch_print(self):
         """批量打印窗口（和独立工具是同一套界面）。"""
@@ -994,19 +1034,24 @@ class MainWindow:
 
     # ---------- 页面操作 ----------
 
-    def _show_page(self, page_num):
+    def _show_page(self, page_num, keep_selection=False):
         if not self.doc.doc:
             return
         page_num = max(0, min(page_num, self.doc.page_count - 1))
         self.current_page = page_num
         self.preview.set_last(self.doc, page_num)
         self.preview.show_page(self.doc, page_num)
-        self.thumb_panel.select_page(page_num)
+        # 从页面轨点过来的带多选：别把刚 Ctrl 选好的一堆页打散
+        self.thumb_panel.select_page(page_num, keep_selection=keep_selection)
         # 页面轨跟着走：当前页的缩略图滚到可视区中间
         self.thumb_panel.scroll_to_page(page_num)
 
     def _on_page_select(self, page_num):
         self._show_page(page_num)
+
+    def _on_rail_select(self, page_num):
+        """页面轨选中：多选状态由轨道自己管，这里只跟着换预览。"""
+        self._show_page(page_num, keep_selection=True)
 
     def _on_reorder(self, from_pos, to_pos):
         try:

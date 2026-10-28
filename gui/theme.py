@@ -32,6 +32,7 @@ INK_3 = '#8B9693'       # 三级 / 禁用（不用于正文）
 ACCENT = '#0F7368'      # 墨青：主操作、焦点、链接
 ACCENT_DEEP = '#0A544C'  # hover / press
 ACCENT_TINT = '#E2EFEC'  # 选中底、标签底
+ACCENT_SOFT = '#F1F8F6'  # 多选里「非当前页」的浅底
 MARKER = '#E9A62A'      # 荧光琥珀：仅「当前页 / 进行中」标记
 MARKER_INK = '#8A5A00'  # 琥珀底上的文字
 DANGER = '#B4462F'      # 删除、破坏性动作

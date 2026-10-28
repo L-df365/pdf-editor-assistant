@@ -63,6 +63,13 @@ per-file print settings.
       sheet and column selectable; short lists fall back to the template)
   - Find & replace (regex), case conversion; illegal characters, over-long
     names and existing files (auto `(2)`) are handled for you
+- 🖱️ **Multi-select on thumbnails, extract the selection**
+  (`Ctrl+click` to toggle, `Shift+click` for a range, `Esc` to collapse)
+  - Right-click → "Extract N selected pages to a new file…": writes the
+    selected pages, in order, into one new PDF — the original is untouched;
+    the default name reads `report 第3-5页.pdf`
+  - Right-click → "Split…": opens the split panel with those pages pre-filled
+  - Insert, extract and split sit at the **same level** in the context menu
 
 ---
 
@@ -121,6 +128,7 @@ python3 main.py --print        # batch printing
 | [File panel](docs/ui/04-文件面板.png) | File panel (multi-select + selection count) |
 | [Empty state](docs/ui/05-空状态.png) | Empty state before a document is opened |
 | [Split panel](docs/ui/06-拆分.png) | Splitting: modes, naming rules, live preview |
+| [Multi-select](docs/ui/07-多选提取.png) | Thumbnail multi-select (Ctrl / Shift) and extract |
 
 Design system: [`docs/design-system.md`](docs/design-system.md) ·
 Print feature plan: [`docs/print-plan.md`](docs/print-plan.md)
@@ -142,6 +150,7 @@ Print feature plan: [`docs/print-plan.md`](docs/print-plan.md)
 | `Ctrl+Shift+I` | Page info |
 | `Ctrl+,` | Conversion backend settings |
 | `Delete` | Delete the current page |
+| `Ctrl+click` / `Shift+click` | Toggle / range-select thumbnails (`Esc` collapses, `Ctrl+A` selects all) |
 | `Ctrl+Q` | Quit |
 
 ---
@@ -159,6 +168,7 @@ Print feature plan: [`docs/print-plan.md`](docs/print-plan.md)
 | Per-file print settings | ✅ | ❌ | ❌ | ❌ | ✅ |
 | Batch print queue | ✅ | ❌ | ❌ | ❌ | ✅ |
 | Split with name list | ✅ | ❌ | ❌ | ✅ CLI only | ✅ |
+| Multi-select + extract | ✅ | ✅ | ❌ | ❌ | ✅ |
 | Fit-to-window Preview | ✅ | ❌ | ❌ | ❌ | ✅ |
 | Open Source | ✅ | ✅ | ✅ | ✅ | ❌ |
 | Install Size | ~61MB | ~5MB | ~1MB | ~2MB | ~200MB |
@@ -285,7 +295,7 @@ pdf-editor-assistant/
 │   ├── design-system.md # Design system
 │   ├── print-plan.md    # Print feature plan
 │   └── ui/              # Screenshots
-└── tools/uitest.py      # UI self-test: synthesised real mouse events (167 checks)
+└── tools/uitest.py      # UI self-test: synthesised real mouse events (194 checks)
 ```
 
 ---
@@ -317,6 +327,7 @@ and Pillow.
 - [ ] Watermark/stamp support
 - [ ] Page numbering
 - [x] PDF split (per page / every N pages / ranges, name lists)
+- [x] Multi-select thumbnails and extract the selection into a new PDF
 - [ ] PDF merge (combine several files into one)
 - [ ] Cross-platform packaging (PyInstaller)
 - [ ] Dark mode
@@ -326,7 +337,7 @@ and Pillow.
 ## Development
 
 ```bash
-xvfb-run -a python3 tools/uitest.py      # UI self-test (167 checks, no display needed)
+xvfb-run -a python3 tools/uitest.py      # UI self-test (194 checks, no display needed)
 ```
 
 The self-test drives the real code paths with synthesised mouse events

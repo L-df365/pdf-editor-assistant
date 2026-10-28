@@ -466,6 +466,16 @@ class RoundedCard(tk.Frame):
         self.body.bind('<Configure>', lambda e: self._sync())
         self._canvas.bind('<Configure>', lambda e: self._sync())
 
+    def set_colors(self, fill=None, outline=None):
+        """换底色/描边后重画圆角（选中、悬停这类状态用）。"""
+        if fill is not None:
+            self._fill = fill
+            self.body.configure(bg=fill)
+        if outline is not None:
+            self._outline = outline
+        self._last_size = None      # 尺寸没变也要重画
+        self._sync()
+
     def _sync(self):
         width = self.body.winfo_reqwidth()
         height = self.body.winfo_reqheight()

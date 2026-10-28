@@ -366,6 +366,27 @@ class PDFDocument:
         self.doc.save(path, garbage=4, deflate=True)
         return path
 
+    def extract_pages(self, pages, path):
+        """把指定页（按给定顺序）另存成一个新 PDF。
+
+        只读当前内存里的状态：拆出去的可能是还没保存的改动，
+        原文档一点不动（不删除、不清"已修改"标记）。
+        """
+        pages = [int(page) for page in pages]
+        if not pages:
+            raise ValueError('没有选中页面')
+        for page in pages:
+            if not 0 <= page < self.page_count:
+                raise ValueError('第 {} 页不存在'.format(page + 1))
+        out = pymupdf.open()
+        try:
+            for page in pages:
+                out.insert_pdf(self.doc, from_page=page, to_page=page)
+            out.save(path, garbage=4, deflate=True)
+        finally:
+            out.close()
+        return len(pages)
+
     def export_page_image(self, page_num, path, dpi=150):
         """把某一页导出为图片。"""
         page = self.doc.load_page(page_num)

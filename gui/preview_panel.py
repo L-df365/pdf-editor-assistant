@@ -41,7 +41,7 @@ class PreviewPanel:
 
     def __init__(self, parent, on_rotate=None, on_delete=None,
                  on_insert=None, on_export=None, on_undo=None, on_redo=None,
-                 on_print=None, on_page_change=None):
+                 on_print=None, on_split=None, on_page_change=None):
         self.frame = ttk.Frame(parent, style='Surface.TFrame')
         self.current_photo = None
         self._last_doc = None
@@ -61,6 +61,7 @@ class PreviewPanel:
         self.on_undo = on_undo
         self.on_redo = on_redo
         self.on_print = on_print
+        self.on_split = on_split
         self.on_page_change = on_page_change
 
         self._build_action_row()
@@ -353,6 +354,8 @@ class PreviewPanel:
              if self.on_export else None),
             ('在第 {} 页后插入文件…'.format(page + 1),
              lambda: self.on_insert() if self.on_insert else None),
+            # 和「插入」放在同一层级：多选提取/拆分在页面轨上做
+            ('拆分文件…', lambda: self.on_split() if self.on_split else None),
         ]))
         self._context_menu.show(event.x_root, event.y_root)
 

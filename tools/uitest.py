@@ -1443,6 +1443,202 @@ def run(app):
         finally:
             shutil.rmtree(base, ignore_errors=True)
 
+    @step
+    def s19_rail_multi_extract():
+        """页面轨多选（Ctrl / Shift）+ 提取所选页为新文件。"""
+        import tempfile
+
+        import pymupdf
+
+        from gui import main_window as mw
+
+        app.open_file(SMALL_PDF)
+        pump(app, 0.5)
+        rail = app.thumb_panel
+        check('打开 6 页小文档', app.doc.page_count == 6,
+              str(app.doc.page_count))
+        check('默认只选当前页', rail.selected_pages() == [0],
+              str(rail.selected_pages()))
+
+        click(app, rail.cards[1]['image'])
+        check('单击只选一页', rail.selected_pages() == [1],
+              str(rail.selected_pages()))
+
+        def click_with(index, state):
+            widget = rail.cards[index]['image']
+            for sequence in ('<ButtonPress-1>', '<ButtonRelease-1>'):
+                widget.event_generate(sequence, x=10, y=10, state=state)
+            pump(app)
+
+        click_with(3, 0x0004)
+        click_with(5, 0x0004)
+        check('Ctrl+点击能加选', rail.selected_pages() == [1, 3, 5],
+              str(rail.selected_pages()))
+        check('当前页跟着最后点的走',
+              app.current_page == 5 and rail.selected == 5,
+              'current={} selected={}'.format(app.current_page, rail.selected))
+        check('多选里当前页和其余页标得不一样',
+              rail.cards[5].get('state') == 'primary'
+              and rail.cards[3].get('state') == 'selected',
+              '{} {}'.format(rail.cards[5].get('state'),
+                             rail.cards[3].get('state')))
+        shot('09-多选页面')
+
+        # 再 Ctrl 点一次：取消这一页
+        click_with(3, 0x0004)
+        check('Ctrl+点击能减选', rail.selected_pages() == [1, 5],
+              str(rail.selected_pages()))
+
+        click(app, rail.cards[1]['image'])
+        click_with(4, 0x0001)
+        check('Shift+点击连选一段', rail.selected_pages() == [1, 2, 3, 4],
+              str(rail.selected_pages()))
+
+        rail.canvas.focus_set()
+        rail.canvas.event_generate('<Escape>')
+        pump(app)
+        check('Esc 收起多选，只留当前页', rail.selected_pages() == [4],
+              str(rail.selected_pages()))
+
+        # 右键菜单：提取、拆分和插入在同一组（不是一个塞在二级页面里）
+        widget = rail.cards[2]['image']
+        widget.event_generate('<ButtonPress-3>', x=10, y=10)
+        widget.event_generate('<ButtonRelease-3>', x=10, y=10)
+        pump(app)
+        menu = rail._context_menu
+        groups = [[]]
+        for item in menu.items:
+            if item.kind == 'separator':
+                groups.append([])
+            else:
+                groups[-1].append(item.label)
+        top = groups[0]
+        check('右键菜单第一组里有「拆分文件…」', '拆分文件…' in top, str(top))
+        check('右键菜单第一组里有「提取…」',
+              any(label.startswith('提取') for label in top), str(top))
+        check('插入和拆分在同一层级',
+              any('插入' in label for label in top)
+              and '拆分文件…' in top, str(top))
+        app.root.event_generate('<ButtonPress-1>', x=900, y=600)
+        app.root.event_generate('<ButtonRelease-1>', x=900, y=600)
+        pump(app, 0.2)
+
+        # 提取第 2、4 页
+        click(app, rail.cards[1]['image'])
+        click_with(3, 0x0004)
+        pages = rail.selected_pages()
+        check('选好了第 2、4 页', pages == [1, 3], str(pages))
+
+        base = tempfile.mkdtemp(prefix='extract_')
+        target = os.path.join(base, '提取.pdf')
+        state = {}
+
+        def fake_dialog(**kwargs):
+            state['dialog'] = kwargs
+            return target
+
+        original = mw.filedialog.asksaveasfilename
+        mw.filedialog.asksaveasfilename = fake_dialog
+        try:
+            app._extract_pages(pages)
+        finally:
+            mw.filedialog.asksaveasfilename = original
+        pump(app, 0.3)
+
+        check('提取写出了新文件', os.path.isfile(target), target)
+        check('默认文件名写着页码',
+              state.get('dialog', {}).get('initialfile') == 'six 第2, 4页.pdf',
+              str(state.get('dialog', {}).get('initialfile')))
+        out = pymupdf.open(target)
+        texts = [out.load_page(i).get_text().strip() for i in range(out.page_count)]
+        out.close()
+        check('新文件正好是选中的两页', texts == ['Page 2', 'Page 4'], str(texts))
+        check('提取后原文档页数不变', app.doc.page_count == 6,
+              str(app.doc.page_count))
+        check('提取不该把文档标成已修改', not app.doc.is_modified,
+              str(app.doc.is_modified))
+        shot('10-提取结果')
+        import shutil
+        shutil.rmtree(base, ignore_errors=True)
+
+    @step
+    def s20_split_prefill():
+        """多选之后点拆分：面板带着这些页打开，范围已填好。"""
+        from core.splitter import MODE_RANGES
+        from gui.split_sheet import SplitSheet
+
+        rail = app.thumb_panel
+        click(app, rail.cards[1]['image'])
+        for sequence in ('<ButtonPress-1>', '<ButtonRelease-1>'):
+            rail.cards[3]['image'].event_generate(sequence, x=10, y=10,
+                                                  state=0x0004)
+        pump(app)
+        pages = rail.selected_pages()
+        check('选好要拆的页', pages == [1, 3], str(pages))
+
+        sheet = SplitSheet(app.root, app.doc, pages=pages)
+        sheet._place(app.root)
+        pump(app, 0.4)
+        check('拆分面板带着选中的页打开',
+              sheet.mode_choice.get() == MODE_RANGES,
+              str(sheet.mode_choice.get()))
+        check('页码范围已经填好', sheet.ranges_entry.get() == '2, 4',
+              str(sheet.ranges_entry.get()))
+        check('预览就是选中的这两页',
+              [entry[1] for entry in (sheet._plan.entries()
+                                      if sheet._plan else [])]
+              == ['第 2 页', '第 4 页'],
+              str(sheet._plan and sheet._plan.entries()))
+        check('源文件那一行说明已带入所选页',
+              '已带入' in sheet.source_label.cget('text'),
+              sheet.source_label.cget('text'))
+        shot('11-带入选页的拆分')
+        sheet.destroy()
+        pump(app, 0.2)
+
+        # 真的从页面轨的「拆分文件…」走一遍（模态里取消）
+        state = {}
+
+        def drive():
+            sheets = [w for w in app.root.winfo_children()
+                      if isinstance(w, SplitSheet) and w.winfo_exists()]
+            if not sheets:
+                app.root.after(100, drive)
+                return
+            sheet = sheets[0]
+            pump(app, 0.3)
+            state['mode'] = sheet.mode_choice.get()
+            state['ranges'] = sheet.ranges_entry.get()
+            sheet.destroy()
+
+        app.root.after(150, drive)
+        rail._do_split(rail.selected_pages())
+        check('右键「拆分文件…」带着多选打开面板',
+              state.get('mode') == MODE_RANGES
+              and state.get('ranges') == '2, 4', str(state))
+
+        # 预览区右键：拆分和插入在同一个一级菜单里
+        canvas = app.preview.canvas
+        canvas.event_generate('<ButtonPress-3>', x=200, y=200)
+        canvas.event_generate('<ButtonRelease-3>', x=200, y=200)
+        pump(app)
+        labels = [item.label for item in app.preview._context_menu.items
+                  if item.kind != 'separator']
+        check('预览右键菜单里有「拆分文件…」', '拆分文件…' in labels,
+              str(labels))
+        check('预览右键菜单里插入和拆分挨着',
+              any('插入' in label for label in labels)
+              and labels.index('拆分文件…')
+              == max(i for i, label in enumerate(labels)
+                     if '插入' in label) + 1,
+              str(labels))
+        app.root.event_generate('<ButtonPress-1>', x=900, y=600)
+        app.root.event_generate('<ButtonRelease-1>', x=900, y=600)
+        pump(app, 0.2)
+
+        app.open_file(PDF)
+        pump(app, 0.4)
+
     def stepper():
         if not steps:
             print('\n===== 结果 =====')

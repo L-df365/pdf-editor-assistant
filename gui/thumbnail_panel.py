@@ -4,8 +4,8 @@ from tkinter import ttk
 from gui.feedback import attach_tooltip
 from gui.menu import MenuPopover, build
 from gui.widgets import FlatButton, RoundedCard, ZoomSlider
-from gui.theme import (ACCENT, ACCENT_TINT, BG, INK_2, INK_3, LINE, MARKER,
-                        PAPER, SURFACE, font)
+from gui.theme import (ACCENT, ACCENT_SOFT, ACCENT_TINT, BG, INK_2, INK_3,
+                       LINE, MARKER, PAPER, SURFACE, font)
 
 
 class ThumbnailPanel:
@@ -31,17 +31,23 @@ class ThumbnailPanel:
 
 
     def __init__(self, parent, on_select=None, on_reorder=None,
-                 on_delete=None, on_rotate=None, on_insert_after=None):
+                 on_delete=None, on_rotate=None, on_insert_after=None,
+                 on_extract=None, on_split=None):
         self.frame = ttk.Frame(parent, style='Surface.TFrame')
         self.on_select = on_select
         self.on_reorder = on_reorder
         self.on_delete = on_delete
         self.on_rotate = on_rotate
         self.on_insert_after = on_insert_after
+        self.on_extract = on_extract
+        self.on_split = on_split
 
         self.doc = None
         self.cards = []          # [{'frame','marker','index','image','page'}]
-        self.selected = None
+        self.selected = None     # 当前页（预览区显示的那页）
+        #: 多选：Ctrl+点击加选、Shift+点击连选。当前页一定在里面。
+        self.selection = set()
+        self._anchor = None      # Shift 连选的起点
         self._drag_data = {'index': None, 'start_y': None, 'moved': False,
                            'target': None}
         self._drop_line = None
@@ -98,6 +104,8 @@ class ThumbnailPanel:
             1, 'pages'))
         self.canvas.bind('<Up>', lambda e: self._move_selection(-1))
         self.canvas.bind('<Down>', lambda e: self._move_selection(1))
+        self.canvas.bind('<Escape>', self._clear_multi)
+        self.canvas.bind('<Control-a>', lambda e: self.select_all())
         self.canvas.focus_set()
 
     # ------------------------------------------------------------------
@@ -301,6 +309,8 @@ class ThumbnailPanel:
         self.cards.clear()
         self._sizes.clear()
         self.selected = None
+        self.selection = set()
+        self._anchor = None
 
         if not self.doc or self.doc.page_count == 0:
             # 没有文档时页面轨是空的，给一句居中的提示，别像没做完
@@ -377,14 +387,41 @@ class ThumbnailPanel:
                 if self.on_reorder:
                     self.on_reorder(page_num, target)
         else:
-            self._on_click(page_num)
+            self._on_click(page_num, event)
         data.update(index=None, start_y=None, moved=False, target=None)
 
     def _on_canvas_click(self, event):
         self.canvas.focus_set()
 
-    def _on_click(self, page_num):
-        self.select_page(page_num, callback=True)
+    def _on_click(self, page_num, event=None):
+        """单击选一页；Ctrl 加选/减选，Shift 连选（和常见 PDF 阅读器一致）。"""
+        state = getattr(event, 'state', 0) or 0
+        ctrl = bool(state & 0x0004)
+        shift = bool(state & 0x0001)
+        if shift and self._anchor is not None:
+            low, high = sorted((self._anchor, page_num))
+            self._set_selection(range(low, high + 1), primary=page_num)
+        elif ctrl:
+            pages = set(self.selection)
+            if page_num in pages and len(pages) > 1:
+                pages.discard(page_num)
+                primary = self.selected if self.selected in pages \
+                    else sorted(pages)[-1]
+            else:
+                pages.add(page_num)
+                primary = page_num
+            self._set_selection(pages, primary=primary)
+            self._anchor = page_num
+        else:
+            self._set_selection([page_num], primary=page_num)
+            self._anchor = page_num
+        if self.on_select and self.selected is not None:
+            self.on_select(self.selected)
+
+    def _clear_multi(self, event=None):
+        """Esc：留着当前页，把多选收起来。"""
+        if self.selected is not None and len(self.selection) > 1:
+            self._set_selection([self.selected], primary=self.selected)
 
     def _move_selection(self, delta):
         if not self.cards:
@@ -490,14 +527,52 @@ class ThumbnailPanel:
     # 选中
     # ------------------------------------------------------------------
 
-    def select_page(self, page_num, callback=False):
-        if self.selected is not None and self.selected < len(self.cards):
-            self._paint_card(self.cards[self.selected], False)
-        self.selected = page_num
-        if 0 <= page_num < len(self.cards):
-            self._paint_card(self.cards[page_num], True)
+    def select_page(self, page_num, callback=False, keep_selection=False):
+        """选中某页。keep_selection=True 时不打散已有的多选。"""
+        if keep_selection and page_num in self.selection:
+            self.selected = page_num
+            return
+        self._set_selection([page_num], primary=page_num)
         if callback and self.on_select:
             self.on_select(page_num)
+
+    def selected_pages(self):
+        """多选的页（升序）。没多选时就是当前页。"""
+        return sorted(self.selection)
+
+    def select_all(self):
+        """全选（右键菜单里也有，键盘上 Ctrl+A 走这里）。"""
+        if not self.cards or self.selected is None:
+            return
+        self._set_selection(range(len(self.cards)), primary=self.selected)
+        if self.on_select:
+            self.on_select(self.selected)
+
+    def _set_selection(self, pages, primary=None):
+        self.selection = {int(page) for page in pages
+                          if 0 <= int(page) < len(self.cards)}
+        if primary is not None:
+            self.selected = int(primary)
+            self.selection.add(self.selected)
+        elif self.selected not in self.selection:
+            self.selected = min(self.selection) if self.selection else None
+        self._paint_selection()
+
+    def _paint_selection(self):
+        """按多选状态重画卡片：只动状态变了的，几百页也不会卡。"""
+        for card in self.cards:
+            page = card['page']
+            if page == self.selected:
+                state = 'primary'
+            elif page in self.selection:
+                state = 'selected'
+            else:
+                state = ''
+            if card.get('state') == state:
+                continue
+            card['state'] = state
+            self._paint_card(card, state == 'primary',
+                             secondary=(state == 'selected'))
 
     def scroll_to_page(self, page_num, center=True):
         """把某一页滚到可视区。
@@ -520,16 +595,24 @@ class ThumbnailPanel:
             target = y - h
         self.canvas.yview_moveto(max(0.0, min(1.0, target / float(total))))
 
-    def _paint_card(self, card, active):
+    def _paint_card(self, card, active, secondary=False):
+        """active=当前页（琥珀标），secondary=多选里的其余页（墨青标）。"""
+        # 卡片底色是 RoundedCard 自己画的，换色要走 set_colors，
+        # 只 configure(bg=…) 只会改卡片外面的那一圈
         if active:
-            card['frame'].configure(bg=ACCENT_TINT,
-                                    highlightbackground=ACCENT)
+            card['frame'].set_colors(ACCENT_TINT, ACCENT)
             card['marker'].configure(bg=MARKER)
             card['index'].configure(foreground=ACCENT,
                                     font=font('num', 'bold'))
             card['image'].configure(bg=ACCENT_TINT)
+        elif secondary:
+            card['frame'].set_colors(ACCENT_SOFT, ACCENT)
+            card['marker'].configure(bg=ACCENT)
+            card['index'].configure(foreground=ACCENT,
+                                    font=font('num'))
+            card['image'].configure(bg=ACCENT_SOFT)
         else:
-            card['frame'].configure(bg=PAPER, highlightbackground=LINE)
+            card['frame'].set_colors(PAPER, LINE)
             card['marker'].configure(bg=PAPER)
             card['index'].configure(foreground=INK_2, font=font('num'))
             card['image'].configure(bg=PAPER)
@@ -543,8 +626,10 @@ class ThumbnailPanel:
         selected = self.selected
         self._build_thumbnails()
         if selected is not None and selected < len(self.cards):
+            # 页序变了，旧的页号不再对应同一页：只留当前页
             self.selected = selected
-            self._paint_card(self.cards[selected], True)
+            self.selection = {selected}
+            self._paint_selection()
 
     def refresh_page(self, page_num):
         for card in self.cards:
@@ -559,16 +644,32 @@ class ThumbnailPanel:
     # ------------------------------------------------------------------
 
     def _show_menu(self, event, page_num):
-        self._context_menu.set_items(build([
+        # 右键点在多选之外：先按这一页重新选（和常见 PDF 阅读器一致）
+        if page_num not in self.selection:
+            self.select_page(page_num, callback=True)
+        pages = self.selected_pages() or [page_num]
+        many = len(pages) > 1
+        items = [
+            # 插入、提取、拆分都是「产出一个新文件」，放同一层级；
+            # 藏在二级菜单里会让人觉得没有这个功能
             ('在第 {} 页后插入文件…'.format(page_num + 1),
              lambda: self._do_insert_after(page_num)),
+            ('提取所选 {} 页为新文件…'.format(len(pages)) if many
+             else '提取第 {} 页为新文件…'.format(page_num + 1),
+             lambda: self._do_extract(pages)),
+            ('拆分文件…', lambda: self._do_split(pages)),
+        ]
+        if self.doc is not None and self.doc.doc is not None:
+            items.append(('全选页面', self.select_all, 'Ctrl+A'))
+        items += [
             None,
             ('逆时针旋转 90°', lambda: self._do_rotate(page_num, -90)),
             ('顺时针旋转 90°', lambda: self._do_rotate(page_num, 90)),
             None,
             ('删除第 {} 页'.format(page_num + 1),
              lambda: self._do_delete(page_num), '', '', True),
-        ]))
+        ]
+        self._context_menu.set_items(build(items))
         self._context_menu.show(event.x_root, event.y_root)
 
     def _do_insert_after(self, page_num):
@@ -582,3 +683,11 @@ class ThumbnailPanel:
     def _do_delete(self, page_num):
         if self.on_delete:
             self.on_delete(page_num)
+
+    def _do_extract(self, pages):
+        if self.on_extract:
+            self.on_extract(list(pages))
+
+    def _do_split(self, pages):
+        if self.on_split:
+            self.on_split(list(pages))

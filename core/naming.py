@@ -347,3 +347,57 @@ def names_from_table(path, column=0, has_header=False, sheet=None):
         stem = value[:-4] if value.lower().endswith('.pdf') else value
         cleaned.append(clean_stem(stem))
     return cleaned
+
+
+# --------------------------------------------------------------------------
+# 页号：界面上的说法和文件名里的说法要一致
+# --------------------------------------------------------------------------
+
+def compact_pages(pages):
+    """把页号压成 '3-5, 8'（页码 1 起，连续的合并成区间）。
+
+    拆分的「页码范围」输入框、提取页面的默认文件名共用它，
+    预览里写的和写进文件名的才是同一个说法。
+    """
+    numbers = []
+    for page in pages:
+        try:
+            page = int(page)
+        except (TypeError, ValueError):
+            raise NamingError('页码要是整数：{!r}'.format(page))
+        if page < 1:
+            raise NamingError('页码从 1 开始')
+        if page not in numbers:
+            numbers.append(page)
+    numbers.sort()
+    parts = []
+    start = previous = None
+    for page in numbers:
+        if start is None:
+            start = previous = page
+        elif page == previous + 1:
+            previous = page
+        else:
+            parts.append((start, previous))
+            start = previous = page
+    if start is not None:
+        parts.append((start, previous))
+    return ', '.join('{}-{}'.format(a, b) if a != b else str(a)
+                     for a, b in parts)
+
+
+def extract_name(source_path, pages, ext='pdf'):
+    """提取页面的默认文件名：「报告 第3-5页.pdf」。
+
+    选的页很多（页号写出来太长）时改成「报告 提取12页.pdf」，
+    文件名不会被截成一串没意义的数字。
+    """
+    stem = os.path.basename(source_path or '')
+    if stem.lower().endswith('.' + ext):
+        stem = stem[:-len(ext) - 1]
+    stem = clean_stem(stem or '提取的页面')
+    pages = list(pages)
+    label = compact_pages(pages)
+    if len(label) <= 18:
+        return clean_stem('{} 第{}页'.format(stem, label)) + '.' + ext
+    return clean_stem('{} 提取{}页'.format(stem, len(pages))) + '.' + ext

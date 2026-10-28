@@ -37,9 +37,11 @@ MAX_PREVIEW = 300
 class SplitSheet(Sheet):
     """拆分面板：方式 + 命名规则 + 实时预览。"""
 
-    def __init__(self, parent, doc=None):
+    def __init__(self, parent, doc=None, pages=None):
         super().__init__(parent, '拆分文件', panel_width=PANEL_WIDTH)
         self.doc = doc
+        #: 从缩略图多选进来时带过来的页（0 起算），用来预填范围
+        self.initial_pages = [int(page) for page in (pages or [])]
         self._from_doc = bool(doc is not None and doc.doc is not None)
         self.source_path = doc.filepath if (self._from_doc and doc.filepath) \
             else ''
@@ -57,6 +59,7 @@ class SplitSheet(Sheet):
         self._refresh_job = None
 
         self._build()
+        self._apply_initial_pages()
         self.after(80, self._refresh)
 
     # ------------------------------------------------------------------
@@ -98,6 +101,25 @@ class SplitSheet(Sheet):
                   ).pack(side='left')
         return row
 
+    def _apply_initial_pages(self):
+        """缩略图里选好页再点拆分：拆法和范围先填上，少让人再输一遍。"""
+        if not self.initial_pages or not self.page_count:
+            return
+        pages = [page for page in self.initial_pages
+                 if 0 <= page < self.page_count]
+        if not pages:
+            return
+        self.initial_pages = pages
+        text = naming.compact_pages([page + 1 for page in pages])
+        self.mode_choice.set_value(MODE_RANGES, notify=False)
+        # 先把输入框解禁再写：disabled 的 ttk.Entry 会默默吞掉 insert
+        self._sync_mode()
+        self.ranges_entry.delete(0, 'end')
+        self.ranges_entry.insert(0, text)
+        self.source_label.configure(
+            text='{}　·　已带入所选 {} 页（页码范围可直接改）'.format(
+                self.source_name, len(pages)))
+
     def _build_source(self, body):
         row = ttk.Frame(body, style='Paper.TFrame')
         row.grid(row=0, column=0, columnspan=2, sticky='ew', pady=(0, 10))
@@ -133,7 +155,8 @@ class SplitSheet(Sheet):
                   font=font('meta'), foreground=INK_3
                   ).pack(side='left', padx=(6, 0))
 
-        row = self._line(parent, '页码范围')
+        # 四个汉字比 6 个字符宽，窄了会被截成「页码范」
+        row = self._line(parent, '页码范围', width=8)
         self.ranges_entry = ttk.Entry(row, font=font('body'), width=14)
         self.ranges_entry.pack(side='left')
         self.ranges_entry.bind('<KeyRelease>', lambda e: self._schedule())
