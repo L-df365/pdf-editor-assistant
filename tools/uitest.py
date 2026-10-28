@@ -787,6 +787,10 @@ def run(app):
                 check('队列项状态变成已完成',
                       window.queue.jobs[0].state == 'done',
                       window.queue.jobs[0].state)
+            check('打印磁盘上的 PDF 不会删掉原文件',
+                  os.path.isfile(SMALL_PDF) and os.path.isfile(PDF),
+                  'six={} many={}'.format(os.path.isfile(SMALL_PDF),
+                                          os.path.isfile(PDF)))
             window.win.destroy()
         finally:
             printers.set_connection(None)

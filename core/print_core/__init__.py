@@ -87,6 +87,8 @@ def submit_job(job, printer=None, on_event=None, workdir=None):
     check_capabilities(printer, options)
 
     path = None
+    # 磁盘上的 PDF 是直接拿来打印的：这份是用户自己的文件，绝不能删
+    original = job.source if isinstance(job.source, str) else None
     try:
         if on_event:
             on_event(job, PrintState.PREPARING, '准备文件')
@@ -114,8 +116,10 @@ def submit_job(job, printer=None, on_event=None, workdir=None):
             on_event(job, PrintState.PRINTING, '作业 #{}'.format(job_id))
         return job_id
     finally:
-        # CUPS 提交时已经把内容收走了，临时文件可以马上删
-        convert.cleanup(path)
+        # CUPS 提交时已经把内容收走了，临时文件可以马上删；
+        # 但用户磁盘上的原文件不属于临时文件，删了就是丢数据
+        if path and path != original:
+            convert.cleanup(path)
 
 
 def print_single(doc, options=None, printer=None, on_event=None):

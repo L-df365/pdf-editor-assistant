@@ -31,7 +31,8 @@ def is_pdf(path):
 def to_pdf(job, workdir=None):
     """返回可打印的 PDF 路径。
 
-    返回的路径可能是临时文件，用完要 cleanup()。
+    返回的路径可能是临时文件，用完要 cleanup()；磁盘上的 PDF 会原样
+    返回 —— 那份是用户的文件，调用方不能删。
     """
     source = job.source
     if isinstance(source, str):
