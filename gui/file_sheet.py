@@ -51,8 +51,10 @@ class FileSheet(Sheet):
 
     def __init__(self, parent, mode='open', current_path=None,
                  confirm_text='打开', on_browse=None, on_confirm=None,
-                 title=None):
+                 title=None, exts=None):
         self.mode = mode
+        # 只列指定类型（比如名单表格），不传就按 mode 的默认类型
+        self.exts = tuple(exts) if exts else None
         self.multi = mode == 'insert'
         self.folder_mode = mode == 'folder'     # 选文件夹（批量打印用）
         self.current_path = current_path
@@ -314,6 +316,8 @@ class FileSheet(Sheet):
 
     def _allowed(self, path):
         ext = formats.ext_of(path)
+        if self.exts is not None:
+            return ext in self.exts
         if self.multi:
             return ext in formats.INSERTABLE_EXTS
         return ext in formats.PDF_EXTS

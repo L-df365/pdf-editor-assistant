@@ -131,6 +131,7 @@ class MainWindow:
             ('另存为…', self.save_as, accel_label('Ctrl+Shift+S')),
             ('打印…', self.print_document, accel_label('Ctrl+P')),
             ('批量打印…', self.open_batch_print),
+            ('拆分文件…', self.split_document),
             None,
             ('瀑布流视图', lambda: self.preview.set_view('flow'),
              accel_label('Ctrl+Shift+V')),
@@ -854,6 +855,17 @@ class MainWindow:
                         title='打印 {}'.format(
                             os.path.basename(self.doc.filepath or '文档')),
                         on_printed=self._on_printed)
+
+    def split_document(self):
+        """把一个 PDF 拆成多个文件（拆法、命名都在面板里定）。"""
+        if not self.doc.doc:
+            toast(self.root, '还没有打开文档', 'warn')
+            return
+        from gui.split_sheet import SplitSheet
+        sheet = SplitSheet(self.root, self.doc)
+        report = sheet.wait(self.root)
+        if report:
+            self._update_status('已拆成 {} 个文件'.format(report.count))
 
     def open_batch_print(self):
         """批量打印窗口（和独立工具是同一套界面）。"""

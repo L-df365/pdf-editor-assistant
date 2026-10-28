@@ -49,6 +49,21 @@ per-file print settings.
     block the rest
   - Standalone entry point `pdf-print`: no page management, starts faster
 
+### Splitting
+
+- ✂️ **Split a document** (File → Split…) — one PDF into many
+  - Three modes: **one file per page** (default) / **every N pages** /
+    **by ranges** (`1-3, 4-8, 9-`)
+  - Splits the **current editing state**, including unsaved reordering/deletions
+  - **Naming rules** with a live preview (what you see is what gets written):
+    - original name + number (default): `report_01.pdf`, `report_02.pdf` …
+    - custom template: `{name}` `{n}` `{total}` `{page}` `{range}` `{date}` …,
+      with start / step / zero-padding and optional prefix & suffix
+    - **names from a table**: pick a column from CSV / TXT / Excel (GBK aware,
+      sheet and column selectable; short lists fall back to the template)
+  - Find & replace (regex), case conversion; illegal characters, over-long
+    names and existing files (auto `(2)`) are handled for you
+
 ---
 
 ## Quick start
@@ -105,6 +120,7 @@ python3 main.py --print        # batch printing
 | [Page rail](docs/ui/03-页面轨.png) | Thumbnail rail and scrollbar |
 | [File panel](docs/ui/04-文件面板.png) | File panel (multi-select + selection count) |
 | [Empty state](docs/ui/05-空状态.png) | Empty state before a document is opened |
+| [Split panel](docs/ui/06-拆分.png) | Splitting: modes, naming rules, live preview |
 
 Design system: [`docs/design-system.md`](docs/design-system.md) ·
 Print feature plan: [`docs/print-plan.md`](docs/print-plan.md)
@@ -142,11 +158,12 @@ Print feature plan: [`docs/print-plan.md`](docs/print-plan.md)
 | Delete Pages | ✅ | ✅ | ❌ | ✅ | ✅ |
 | Per-file print settings | ✅ | ❌ | ❌ | ❌ | ✅ |
 | Batch print queue | ✅ | ❌ | ❌ | ❌ | ✅ |
+| Split with name list | ✅ | ❌ | ❌ | ✅ CLI only | ✅ |
 | Fit-to-window Preview | ✅ | ❌ | ❌ | ❌ | ✅ |
 | Open Source | ✅ | ✅ | ✅ | ✅ | ❌ |
-| Install Size | ~57MB | ~5MB | ~1MB | ~2MB | ~200MB |
+| Install Size | ~61MB | ~5MB | ~1MB | ~2MB | ~200MB |
 
-> Size breakdown: 1.5MB for the app itself, 48MB PyMuPDF, 7MB Pillow.
+> Size breakdown: 1.5MB for the app itself, 48MB PyMuPDF, 7MB Pillow, 4MB openpyxl.
 > WPS / LibreOffice are not included (installed on demand).
 
 ---
@@ -225,7 +242,7 @@ pdf-editor-assistant/
 ├── main.py              # Entry point (--print opens batch printing directly)
 ├── install.sh           # One-click installer
 ├── uninstall.sh         # Uninstaller
-├── requirements.txt     # Python dependencies (PyMuPDF + Pillow only)
+├── requirements.txt     # Python dependencies (PyMuPDF / Pillow / openpyxl)
 ├── requirements-wps.txt # Optional: WPS backend dependency
 ├── core/                # UI-independent
 │   ├── converter.py     # Switchable backend facade
@@ -238,6 +255,8 @@ pdf-editor-assistant/
 │   │   ├── wps_worker.py# Isolated WPS conversion process
 │   │   └── libreoffice.py
 │   ├── pdf_document.py  # PDF operations, undo stack (PyMuPDF)
+│   ├── splitter.py      # Split: per page / every N pages / by ranges
+│   ├── naming.py        # Naming rules: templates, table lists, find & replace
 │   └── print_core/      # Printing core (no tkinter / PyMuPDF)
 │       ├── jobs.py      #   PrintJob / PrintOptions
 │       ├── ranges.py    #   Page range parsing
@@ -258,6 +277,7 @@ pdf-editor-assistant/
 │   ├── print_sheet.py   # Print the current document
 │   ├── print_options.py # Print options form (shared)
 │   ├── batch_print_window.py # Batch print window
+│   ├── split_sheet.py   # Split panel (mode + naming + live preview)
 │   ├── backend_dialog.py# Conversion backend settings
 │   ├── empty_state.py   # Empty state
 │   └── version.py       # Version number
@@ -265,7 +285,7 @@ pdf-editor-assistant/
 │   ├── design-system.md # Design system
 │   ├── print-plan.md    # Print feature plan
 │   └── ui/              # Screenshots
-└── tools/uitest.py      # UI self-test: synthesised real mouse events (128+ checks)
+└── tools/uitest.py      # UI self-test: synthesised real mouse events (167 checks)
 ```
 
 ---
@@ -296,7 +316,8 @@ and Pillow.
 - [ ] Page cropping
 - [ ] Watermark/stamp support
 - [ ] Page numbering
-- [ ] PDF merge/split
+- [x] PDF split (per page / every N pages / ranges, name lists)
+- [ ] PDF merge (combine several files into one)
 - [ ] Cross-platform packaging (PyInstaller)
 - [ ] Dark mode
 
@@ -305,7 +326,7 @@ and Pillow.
 ## Development
 
 ```bash
-xvfb-run -a python3 tools/uitest.py      # UI self-test (128+ checks, no display needed)
+xvfb-run -a python3 tools/uitest.py      # UI self-test (167 checks, no display needed)
 ```
 
 The self-test drives the real code paths with synthesised mouse events

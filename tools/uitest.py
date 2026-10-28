@@ -1138,6 +1138,307 @@ def run(app):
         sheet.destroy()
         pump(app, 0.2)
 
+    @step
+    def s15_print_color():
+        """黑白打印要真的黑：默认的 Poppler 不会转灰度，得指定渲染器。"""
+        from core.print_core import backend, PrintOptions
+        printer = backend.get_printer('KONICA-MINOLTA-C368Series')
+        check('找得到打印机', printer is not None, '没有打印机')
+        if printer is None:
+            return
+        mono = PrintOptions(color='mono').to_cups()
+        check('黑白用 print-color-mode=monochrome',
+              mono.get('print-color-mode') == 'monochrome', str(mono))
+        extra = printer.extra_options(mono)
+        check('黑白时指定了 PDF→PS 渲染器',
+              extra.get('pdftops-renderer') in ('gs', 'mupdf', 'pdftocairo'),
+              str(extra))
+        color = PrintOptions(color='color').to_cups()
+        check('彩色不强制灰度渲染器',
+              'pdftops-renderer' not in printer.extra_options(color),
+              str(printer.extra_options(color)))
+
+    @step
+    def s16_split():
+        """拆分：拆分方式 + 命名规则 + 计划预览 + 真正写文件。"""
+        import shutil
+        import tempfile
+
+        import pymupdf
+
+        from core import naming
+        from core.naming import Namer
+        from core.splitter import (MODE_CHUNK, MODE_PAGE, MODE_RANGES,
+                                   SplitError, plan_parts, plan_split,
+                                   split_pdf)
+        from gui.split_sheet import SplitSheet
+
+        parts = plan_parts(5, MODE_PAGE)
+        check('每页一份：5 页拆 5 份',
+              [(p.page, p.end) for p in parts] == [(i, i) for i in range(1, 6)],
+              str(parts))
+        parts = plan_parts(5, MODE_CHUNK, chunk=2)
+        check('每 2 页一份：5 页拆 3 份',
+              [(p.page, p.end) for p in parts] == [(1, 2), (3, 4), (5, 5)],
+              str(parts))
+        parts = plan_parts(10, MODE_RANGES, ranges_text='1-3, 8-')
+        check('按范围：1-3 与 8-10',
+              [(p.page, p.end) for p in parts] == [(1, 3), (8, 10)],
+              str(parts))
+        try:
+            plan_parts(5, MODE_CHUNK, chunk=0)
+            bad = False
+        except SplitError:
+            bad = True
+        check('每 N 页的 N 不能是 0', bad)
+
+        names = Namer(digits=2).build_names('年度报告.pdf', [(1, 1)] * 3)
+        check('默认命名：原文件名 + 补零序号',
+              names == ['年度报告_01.pdf', '年度报告_02.pdf',
+                        '年度报告_03.pdf'], str(names))
+        names = Namer(template='通知书_{N}', prefix='前缀-', suffix='_盖章',
+                      start=5, step=2).build_names('x.pdf', [(1, 1)] * 2)
+        check('模板 + 前后缀 + 起始/步长',
+              names == ['前缀-通知书_5_盖章.pdf', '前缀-通知书_7_盖章.pdf'],
+              str(names))
+        names = Namer(digits=2, find=r'(\d+)', replace=r'No.\1',
+                      regex=True).build_names('报告.pdf', [(1, 1)])
+        check('查找替换支持正则分组',
+              names == ['报告_No.01.pdf'], str(names))
+        names = Namer(template='{name}_{N}', case='upper').build_names(
+            'report.pdf', [(1, 1)])
+        check('大小写规则：统一大写', names == ['REPORT_1.pdf'], str(names))
+        names = Namer(template='{page}-{end}_{range}').build_names(
+            'x.pdf', [(1, 1), (2, 4)])
+        check('模板里能用页码占位符',
+              names == ['1-1_1.pdf', '2-4_2-4.pdf'], str(names))
+        names = Namer(names=['张三', '张三', '李四']).build_names(
+            'x.pdf', [(1, 1)] * 3)
+        check('名单里有重名会自动区分',
+              names == ['张三.pdf', '张三 (2).pdf', '李四.pdf'], str(names))
+        check('非法字符被清掉',
+              naming.clean_stem('a/b:c*?"<>|') == 'a_b_c______',
+              naming.clean_stem('a/b:c*?"<>|'))
+        check('保留设备名也安全',
+              naming.clean_stem('con').startswith('_'), naming.clean_stem('con'))
+
+        tmp = tempfile.mkdtemp(prefix='split_test_')
+        try:
+            csv_path = os.path.join(tmp, '名单.csv')
+            with open(csv_path, 'w', encoding='utf-8-sig', newline='') as fh:
+                fh.write('姓名,备注\n张三,a\n李四,b\n')
+            data = naming.read_table(csv_path)
+            check('CSV 名单按列读出来',
+                  data.column_values(0, has_header=True) == ['张三', '李四'],
+                  str(data.rows))
+
+            txt_path = os.path.join(tmp, '名单.txt')
+            with open(txt_path, 'w', encoding='utf-8') as fh:
+                fh.write('周一\n吴二\n郑三\n')
+            check('TXT 一行一个名字也能读',
+                  naming.names_from_table(txt_path) == ['周一', '吴二', '郑三'],
+                  str(naming.names_from_table(txt_path)))
+
+            gbk_path = os.path.join(tmp, '名单_gbk.csv')
+            with open(gbk_path, 'wb') as fh:
+                fh.write('姓名\n王五\n赵六\n'.encode('gb18030'))
+            check('GBK 名单也读得出来',
+                  naming.names_from_table(gbk_path, has_header=True)
+                  == ['王五', '赵六'])
+
+            try:
+                import openpyxl
+            except ImportError:
+                openpyxl = None
+            if openpyxl is not None:
+                xlsx_path = os.path.join(tmp, '名单.xlsx')
+                workbook = openpyxl.Workbook()
+                worksheet = workbook.active
+                worksheet.title = '名单'
+                worksheet.append(['姓名', '编号'])
+                worksheet.append(['钱七', 1])
+                worksheet.append(['孙八', 2])
+                workbook.save(xlsx_path)
+                data = naming.read_table(xlsx_path)
+                check('XLSX 名单读得出来',
+                      data.sheets == ['名单']
+                      and data.column_values(0, has_header=True)
+                      == ['钱七', '孙八'], str(data.rows))
+
+            out = os.path.join(tmp, 'out')
+            os.makedirs(out)
+            open(os.path.join(out, '报告_1.pdf'), 'wb').close()
+            plan = plan_split(3, '报告.pdf', out, MODE_PAGE)
+            check('磁盘上同名文件会让开（加 (2)）',
+                  plan.names[0] == '报告_1 (2).pdf'
+                  and plan.names[1] == '报告_2.pdf', str(plan.names))
+
+            source = os.path.join(tmp, '五页.pdf')
+            document = pymupdf.open()
+            for i in range(5):
+                page = document.new_page(width=300, height=400)
+                page.insert_text((40, 80), 'P{}'.format(i + 1), fontsize=20)
+            document.save(source)
+            document.close()
+
+            dest = os.path.join(tmp, 'pages')
+            plan = plan_split(5, '五页.pdf', dest, MODE_PAGE)
+            report = split_pdf(source, plan)
+            check('每页一份：真的拆出 5 个文件',
+                  report.count == 5 and not report.failures,
+                  str(report.failures))
+            check('拆出来的名字就是预览的名字',
+                  [os.path.basename(p) for p in report.paths]
+                  == ['五页_{}.pdf'.format(i) for i in range(1, 6)],
+                  str([os.path.basename(p) for p in report.paths]))
+            sizes = []
+            texts = []
+            for path in report.paths:
+                part = pymupdf.open(path)
+                sizes.append(part.page_count)
+                texts.append(part.load_page(0).get_text().strip())
+                part.close()
+            check('每份 1 页', sizes == [1] * 5, str(sizes))
+            check('第 2 份装的是第 2 页', texts[1] == 'P2', str(texts))
+
+            dest = os.path.join(tmp, 'chunks')
+            plan = plan_split(5, '五页.pdf', dest, MODE_CHUNK, chunk=2)
+            report = split_pdf(source, plan)
+            sizes = []
+            for path in report.paths:
+                part = pymupdf.open(path)
+                sizes.append(part.page_count)
+                part.close()
+            check('每 2 页一份：2 / 2 / 1', sizes == [2, 2, 1], str(sizes))
+
+            # 面板：默认值、预览、表格联动、真拆
+            gui_out = os.path.join(tmp, 'gui')
+            sheet = SplitSheet(app.root, app.doc)
+            sheet._place(app.root)
+            app.root.update()
+            check('拆分面板默认「每页一份」',
+                  sheet.mode_choice.get() == MODE_PAGE,
+                  sheet.mode_choice.get())
+            check('拆分面板默认命模板是原文件名 + 序号',
+                  sheet.template_entry.get() == '{name}_{n}',
+                  sheet.template_entry.get())
+            sheet.dir_entry.delete(0, 'end')
+            sheet.dir_entry.insert(0, gui_out)
+            sheet._refresh()
+            app.root.update()
+            total = app.doc.page_count
+            check('预览把每一份都列出来',
+                  len(sheet.preview.get_children()) == total,
+                  '{} vs {}'.format(len(sheet.preview.get_children()), total))
+
+            sheet._load_table(csv_path)
+            sheet.header_var.set(True)
+            sheet._sync_columns()
+            sheet._refresh()
+            check('选了表格自动切到「表格名单」',
+                  sheet.naming_choice.get() == 'table',
+                  sheet.naming_choice.get())
+            check('名单里的名字进了预览',
+                  sheet._plan.names[0] == '张三.pdf'
+                  and sheet._plan.names[1] == '李四.pdf',
+                  str(sheet._plan.names[:2]))
+
+            sheet.mode_choice.set_value(MODE_RANGES)
+            sheet._sync_mode()
+            sheet.ranges_entry.delete(0, 'end')
+            sheet.ranges_entry.insert(0, '1-2,3-4')
+            sheet.naming_choice.set_value('default', notify=False)
+            sheet._refresh()
+            check('范围模式预览是 2 份',
+                  sheet._plan is not None and sheet._plan.total == 2,
+                  str(sheet._plan.total if sheet._plan else None))
+            sheet._split()
+            deadline = time.time() + 20
+            while sheet._busy and time.time() < deadline:
+                app.root.update()
+                time.sleep(0.02)
+            check('面板里真的拆出 2 个文件',
+                  sheet.result is not None and sheet.result.count == 2,
+                  str(sheet.result and sheet.result.count))
+            check('拆分完成后能打开输出文件夹',
+                  sheet.open_button is not None)
+            sheet.destroy()
+            app.root.update()
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    @step
+    def s17_split_entry():
+        """拆分入口：菜单里有这一条，选表格时文件面板只列表格类型。"""
+        labels = [item.label for item in app._menu_file() if item is not None]
+        check('文件菜单里有「拆分文件…」', '拆分文件…' in labels, str(labels))
+
+        from core import naming
+        from gui.file_sheet import FileSheet
+        sheet = FileSheet(app.root, mode='open', exts=naming.TABLE_EXTS,
+                          title='选择名单表格')
+        sheet._place(app.root)
+        app.root.update()
+        check('选表格时 CSV 能选',
+              sheet._allowed(os.path.join(FIXTURES, '名单.csv')))
+        check('选表格时 PDF 不列出来',
+              not sheet._allowed(PDF))
+        sheet.destroy()
+        app.root.update()
+
+    @step
+    def s18_split_from_menu():
+        """从「文件 → 拆分文件…」真的走一遍（含模态等待）。"""
+        import shutil
+        import tempfile
+
+        from core.splitter import MODE_CHUNK
+        from gui.split_sheet import SplitSheet
+
+        base = tempfile.mkdtemp(prefix='split_menu_')
+        out = os.path.join(base, 'out')
+        state = {}
+
+        def drive():
+            sheets = [w for w in app.root.winfo_children()
+                      if isinstance(w, SplitSheet) and w.winfo_exists()]
+            if not sheets:
+                app.root.after(100, drive)
+                return
+            sheet = sheets[0]
+            sheet.dir_entry.delete(0, 'end')
+            sheet.dir_entry.insert(0, out)
+            sheet.mode_choice.set_value(MODE_CHUNK)
+            sheet._sync_mode()
+            sheet.chunk_spin.delete(0, 'end')
+            sheet.chunk_spin.insert(0, '10')
+            sheet._refresh()
+            state['names'] = list(sheet._plan.names)
+
+            def finish():
+                if sheet._busy:
+                    app.root.after(100, finish)
+                    return
+                state['result'] = sheet.result
+                sheet.destroy()
+
+            sheet._split()
+            app.root.after(100, finish)
+
+        try:
+            app.root.after(150, drive)
+            app.split_document()
+            report = state.get('result')
+            check('从菜单打开拆分面板并真的拆完',
+                  report is not None and report.count == len(state['names']),
+                  str(report and report.count))
+            check('拆出来的文件都在输出目录',
+                  report is not None and all(
+                      os.path.isfile(p) for p in report.paths),
+                  str(report and report.paths[:2]))
+        finally:
+            shutil.rmtree(base, ignore_errors=True)
+
     def stepper():
         if not steps:
             print('\n===== 结果 =====')

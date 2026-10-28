@@ -41,6 +41,19 @@
   - 开始 / 暂停 / 取消 / 重试失败，失败的任务隔离在队列里不影响后面的
   - 独立入口 `pdf-print`：不启动页面管理那一套，启动更快
 
+### 拆分
+
+- ✂️ **拆分文件**（文件 → 拆分文件…）—— 一个 PDF 拆成多个
+  - 三种拆法：**每页一份**（默认）/ **每 N 页一份** / **按范围**（`1-3, 4-8, 9-`）
+  - 拆的是**当前编辑状态**：改了顺序、删了页，拆出来的就是改后的
+  - **命名规则**（拆之前有实时预览，看到的名字就是拆出来的名字）：
+    - 原文件名 + 序号（默认）：`报告_01.pdf`、`报告_02.pdf` …
+    - 自定义模板：`{name}` `{n}` `{total}` `{page}` `{range}` `{date}` 等，
+      序号可设起始 / 步长 / 补零位数，还能加统一的前缀、后缀
+    - **表格名单**：从 CSV / TXT / Excel 里取一列当文件名（自动认 GBK，
+      Excel 可选工作表与列；名单不够时其余按模板命名）
+  - 支持查找替换（可正则）、大小写转换；非法字符、超长名字、同目录重名（自动加 `(2)`）都处理好了
+
 ---
 
 ## 快速开始
@@ -96,6 +109,7 @@ python3 main.py --print        # 批量打印
 | [页面轨](docs/ui/03-页面轨.png) | 页面轨与滚动条 |
 | [文件面板](docs/ui/04-文件面板.png) | 文件选择面板（多选 + 已选计数） |
 | [空状态](docs/ui/05-空状态.png) | 未打开文档时的空状态 |
+| [拆分](docs/ui/06-拆分.png) | 拆分面板：拆法、命名规则、实时预览 |
 
 设计系统（配色、间距、组件规范）见 [`docs/design-system.md`](docs/design-system.md)，
 打印功能的完整方案见 [`docs/print-plan.md`](docs/print-plan.md)。
@@ -133,11 +147,12 @@ python3 main.py --print        # 批量打印
 | 删除页面 | ✅ | ✅ | ❌ | ✅ | ✅ |
 | 逐文件打印参数 | ✅ | ❌ | ❌ | ❌ | ✅ |
 | 批量打印队列 | ✅ | ❌ | ❌ | ❌ | ✅ |
+| 拆分 + 表格名单命名 | ✅ | ❌ | ❌ | ✅ 仅命令行 | ✅ |
 | 适应窗口预览 | ✅ | ❌ | ❌ | ❌ | ✅ |
 | 开源免费 | ✅ | ✅ | ✅ | ✅ | ❌ |
-| 安装体积 | ~57MB | ~5MB | ~1MB | ~2MB | ~200MB |
+| 安装体积 | ~61MB | ~5MB | ~1MB | ~2MB | ~200MB |
 
-> 体积构成：应用本体 1.5MB，PyMuPDF 48MB，Pillow 7MB。
+> 体积构成：应用本体 1.5MB，PyMuPDF 48MB，Pillow 7MB，openpyxl 4MB。
 > WPS / LibreOffice 不算在内（按需安装）。
 
 ---
@@ -213,7 +228,7 @@ pdf-editor-assistant/
 ├── main.py              # 程序入口（--print 直接开批量打印）
 ├── install.sh           # 一键安装脚本
 ├── uninstall.sh         # 卸载脚本
-├── requirements.txt     # Python 依赖（只有 PyMuPDF 和 Pillow）
+├── requirements.txt     # Python 依赖（PyMuPDF / Pillow / openpyxl）
 ├── requirements-wps.txt # 可选：WPS 后端依赖
 ├── wheels/             # 随应用发布的预编译包（arm64 的 pywpsrpc）
 ├── core/                # 与界面无关
@@ -227,6 +242,8 @@ pdf-editor-assistant/
 │   │   ├── wps_worker.py# WPS 独立转换进程
 │   │   └── libreoffice.py
 │   ├── pdf_document.py  # PDF 操作、撤销栈（PyMuPDF）
+│   ├── splitter.py      # 拆分：每页 / 每 N 页 / 按范围
+│   ├── naming.py        # 命名规则：模板、表格名单、查找替换
 │   └── print_core/      # 打印底座（不依赖 tkinter / PyMuPDF）
 │       ├── jobs.py      #   PrintJob / PrintOptions
 │       ├── ranges.py    #   页码范围解析
@@ -247,6 +264,7 @@ pdf-editor-assistant/
 │   ├── print_sheet.py   # 打印当前文档
 │   ├── print_options.py # 打印参数表单（两处共用）
 │   ├── batch_print_window.py # 批量打印窗口
+│   ├── split_sheet.py   # 拆分面板（拆法 + 命名规则 + 预览）
 │   ├── backend_dialog.py# 转换后端设置
 │   ├── empty_state.py   # 空状态
 │   └── version.py       # 版本号
@@ -254,7 +272,7 @@ pdf-editor-assistant/
 │   ├── design-system.md # 设计系统
 │   ├── print-plan.md    # 打印功能方案
 │   └── ui/              # 界面截图
-└── tools/uitest.py      # 界面自测：合成真实鼠标事件（128 项以上）
+└── tools/uitest.py      # 界面自测：合成真实鼠标事件（167 项）
 ```
 
 ---
@@ -284,7 +302,8 @@ pdf-editor-assistant/
 - [ ] 页面裁剪
 - [ ] 水印/印章支持
 - [ ] 页码编号
-- [ ] PDF 合并/拆分
+- [x] PDF 拆分（每页 / 每 N 页 / 按范围，支持表格名单命名）
+- [ ] PDF 合并（多文件合成一份）
 - [ ] 跨平台打包 (PyInstaller)
 - [ ] 暗色模式
 
@@ -293,7 +312,7 @@ pdf-editor-assistant/
 ## 开发
 
 ```bash
-xvfb-run -a python3 tools/uitest.py      # 界面自测（128 项以上，不需要显示器）
+xvfb-run -a python3 tools/uitest.py      # 界面自测（167 项，不需要显示器）
 ```
 
 自测用合成鼠标事件走真实链路（点击 / 拖拽 / 悬停 / 右键），不碰真打印机
