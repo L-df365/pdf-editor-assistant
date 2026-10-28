@@ -8,6 +8,7 @@ import tkinter as tk
 from tkinter import ttk
 
 from core.print_core import PrintOptions
+from core.print_core import backend
 from core.print_core import ranges
 from gui.theme import DANGER, INK, INK_2, INK_3, LINE, PAPER, font
 from gui.widgets import Segmented
@@ -234,6 +235,10 @@ class PrintOptionsForm(tk.Frame):
             issues.append('该打印机不支持所选纸张')
         if not printer.supports_nup(opts.nup):
             issues.append('该打印机不支持每张 {} 页'.format(opts.nup))
+        if opts.color == 'mono' and not backend.pdf_renderer():
+            issues.append(
+                '这台机器没有 Ghostscript/MuPDF，PDF 转 PostScript 时'
+                '没法转成灰度，黑白可能不生效')
         # 页码范围
         text = opts.pages.strip()
         if text:

@@ -108,7 +108,7 @@ def submit_job(job, printer=None, on_event=None, workdir=None):
         if on_event:
             on_event(job, PrintState.SUBMITTING, '提交中')
         job_id = backend.submit(printer.name, path, job.title(),
-                                options.to_cups(page_ranges))
+                                options.to_cups(page_ranges), printer=printer)
         job.job_ids = [job_id]
         if on_event:
             on_event(job, PrintState.PRINTING, '作业 #{}'.format(job_id))

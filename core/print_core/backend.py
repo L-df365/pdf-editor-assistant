@@ -13,6 +13,7 @@ page-ranges-supported = True
 """
 
 import os
+import shutil
 
 from .errors import PrintError
 
@@ -60,6 +61,7 @@ class PrinterInfo:
 
     def __init__(self, name, attrs):
         self.name = name
+        self.attrs = attrs
         self.state = attrs.get('printer-state', 0)
         self.accepting = bool(attrs.get('printer-is-accepting-jobs', True))
         self.reasons = [str(r) for r in attrs.get('printer-state-reasons', [])
@@ -120,6 +122,94 @@ class PrinterInfo:
             if sep in name:
                 name = name.split(sep)[0]
         return '{}（{}）'.format(name, self.state_text)
+
+    # ------------------------------------------------------------------
+    # 厂商专属选项
+    # ------------------------------------------------------------------
+
+    def _ppd_path(self):
+        """这台打印机的 PPD 文件路径（拿不到就是 None）。"""
+        try:
+            path = _conn().getPPD(self.name)
+        except Exception:
+            return None
+        return path if path and os.path.exists(path) else None
+
+    def _ppd_text(self):
+        """PPD 的内容（读不到就返回空串 —— 很多系统上 PPD 只有 root 能读）。"""
+        path = self._ppd_path()
+        if not path:
+            return ''
+        try:
+            with open(path, encoding='utf-8', errors='ignore') as f:
+                return f.read()
+        except OSError:
+            return ''
+
+    def _ppd_option_names(self):
+        """PPD 里用到的颜色选项名。"""
+        text = self._ppd_text()
+        if not text:
+            return ()
+        return tuple(name for name in ('ColorModel', 'SelectColor')
+                     if ('*%s ' % name) in text)
+
+    def _ppd_choices(self, option):
+        """PPD 某个选项的候选值。"""
+        text = self._ppd_text()
+        if not text:
+            return []
+        choices = []
+        prefix = '*%s ' % option
+        for line in text.splitlines():
+            if not line.startswith(prefix):
+                continue
+            value = line[len(prefix):].split(':')[0].split('/')[0].strip()
+            if value and value not in choices:
+                choices.append(value)
+        return choices
+
+    def extra_options(self, options):
+        """补上标准 IPP 属性覆盖不到的地方。
+
+        两件事：
+        1. 黑白打印要显式指定 PDF→PS 的渲染器：默认的 Poppler 不会转灰度，
+           出来还是彩的。
+        2. 有些打印机的 PPD 里没有标准的 ColorModel，只有厂商自己的颜色选项
+           （例如 Konica 的 SelectColor），这时 print-color-mode 会被驱动丢掉。
+        """
+        extras = {}
+        if options.get('print-color-mode') == 'monochrome':
+            renderer = pdf_renderer()
+            if renderer:
+                extras['pdftops-renderer'] = renderer
+        names = self._ppd_option_names()
+        if 'ColorModel' in names:
+            return extras
+        color = options.get('print-color-mode')
+        if not color or 'SelectColor' not in names:
+            return extras
+        value = self._vendor_color_value(color)
+        if value:
+            extras['SelectColor'] = value
+        return extras
+
+    def _vendor_color_value(self, color):
+        """从 PPD 的候选里挑一个对应的颜色值。"""
+        choices = self._ppd_choices('SelectColor')
+        if not choices:
+            return None
+        if color == 'monochrome':
+            for want in ('grayscale', 'gray', 'black', 'mono'):
+                for choice in choices:
+                    if want in choice.lower():
+                        return choice
+            return None
+        for choice in choices:
+            low = choice.lower()
+            if 'color' in low and 'gray' not in low and 'black' not in low:
+                return choice
+        return None
 
 
 # --------------------------------------------------------------------------
@@ -190,14 +280,33 @@ def get_printer(name):
 # 作业
 # --------------------------------------------------------------------------
 
-def submit(printer_name, pdf_path, title, options):
+def pdf_renderer():
+    """PDF → PostScript 用哪个渲染器。
+
+    cups-filters 默认用 Poppler(pdftops) 转，**它不会把 PDF 转成灰度** ——
+    打印黑白时颜色信息会丢，出来还是彩的（日志里会写
+    "Poppler is not able to convert to grayscale/monochrome PostScript"）。
+    Ghostscript / MuPDF 都能转，所以黑白打印要显式指定渲染器。
+    """
+    for name, binary in (('gs', 'gs'), ('mupdf', 'mutool'),
+                         ('pdftocairo', 'pdftocairo')):
+        if shutil.which(binary):
+            return name
+    return None
+
+
+def submit(printer_name, pdf_path, title, options, printer=None):
     """提交一个打印作业，返回作业号。
 
     options 是 IPP 作业属性（见 options.PrintOptions.to_cups）。
+    printer 给了的话，会按这台打印机的 PPD 补上厂商专属选项。
     """
     conn = _conn()
+    options = dict(options)
+    if printer is not None:
+        options.update(printer.extra_options(options))
     try:
-        return conn.printFile(printer_name, pdf_path, title, dict(options))
+        return conn.printFile(printer_name, pdf_path, title, options)
     except cups.IPPError as exc:
         raise PrintError('提交打印作业失败：{}'.format(exc))
     except OSError as exc:
