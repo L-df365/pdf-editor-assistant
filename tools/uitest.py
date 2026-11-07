@@ -8,8 +8,10 @@ Tk 的好处是能真的模拟点击/拖拽，验证的是真实链路，
 """
 
 import os
+import shutil
 import subprocess
 import sys
+import tempfile
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -1638,6 +1640,120 @@ def run(app):
 
         app.open_file(PDF)
         pump(app, 0.4)
+
+    @step
+    def s21_flow_refresh_after_rotate():
+        """旋转 / 排序后瀑布流里的页图要跟着换。
+
+        回归：以前瀑布流只按「尺寸」判断缓存是否过期，旋转 / 排序后
+        页面尺寸和页码可能都没变，画面上就一直留着旧页。
+        """
+        preview = app.preview
+        preview.set_view(preview.VIEW_FLOW)
+        app._show_page(0)
+        pump(app, 0.4)
+
+        def layout(page):
+            return next((item for item in preview._flow_layout
+                         if item['page'] == page), None)
+
+        item = layout(0)
+        check('瀑布流里第 1 页是竖版', item and item['h'] > item['w'],
+              str(item))
+        before = preview._flow_photos.get(0)
+        check('第 1 页已经画出来了', before is not None)
+        check('画出来的是竖版页图',
+              before is not None and before.height() > before.width(),
+              '{}x{}'.format(before and before.width(),
+                             before and before.height()))
+
+        app._on_rotate_page(0, 90)
+        pump(app, 0.4)
+        item = layout(0)
+        photo = preview._flow_photos.get(0)
+        check('旋转后瀑布流里的页变横版', item and item['w'] > item['h'],
+              str(item))
+        check('旋转后页图重画了', photo is not None and photo is not before,
+              'photo={}'.format(photo))
+        if photo is not None and before is not None:
+            # 适应页面模式下高度不变、宽度变；适应宽度模式反过来。
+            # 比比例最稳：不管哪种缩放，横竖版的比例一定不同。
+            check('旋转后页图的比例也跟着变',
+                  photo.width() / photo.height()
+                  != before.width() / before.height(),
+                  '{}x{} -> {}x{}'.format(
+                      before.width(), before.height(),
+                      photo.width(), photo.height()))
+            check('画布上用的是新页图',
+                  str(preview.canvas.itemcget(preview._flow_items[0][1],
+                                              'image')) == str(photo))
+
+        app._on_reorder(0, 2)
+        pump(app, 0.4)
+        check('排序后第 1 页换成了别的页',
+              app.doc.doc.load_page(0).get_text().strip() == 'Page 2',
+              app.doc.doc.load_page(0).get_text().strip()[:20])
+        reordered = preview._flow_photos.get(0)
+        check('排序后页图也重画了',
+              reordered is not None and reordered is not photo)
+
+        app.open_file(PDF)
+        pump(app, 0.4)
+
+    @step
+    def s22_wps_wheel_offline():
+        """WPS 预编译包：没网、pip 太老或没 pip 的机器也得能装上。
+
+        回归：老 pip 不认 manylinux2014 标签，会转去源码编译再失败；
+        有的机器干脆没装 pip。
+        """
+        import platform
+        from core.backends import installer
+
+        wheels = [wheel for wheel in installer.bundled_wheels()
+                  if 'pywpsrpc' in os.path.basename(wheel)]
+        check('随应用带着 pywpsrpc 预编译包', bool(wheels),
+              installer.WHEELS_DIR)
+        if not wheels:
+            return
+
+        check('预编译包和本机 Python / 架构匹配',
+              installer._wheel_matches_platform(wheels[0]),
+              '{} / {}'.format(platform.python_version(),
+                               platform.machine()))
+
+        calls = []
+        originals = (installer._run, installer._imports_in_subprocess)
+        installer._run = lambda args, log=None, timeout=None: (
+            calls.append(list(args)) or 0)
+        installer._imports_in_subprocess = lambda: True
+        try:
+            ok = installer._install_bundled_wheel(lambda text: None)
+        finally:
+            (installer._run,
+             installer._imports_in_subprocess) = originals
+        pip_args = next((args for args in calls if '-m' in args), [])
+        check('预编译包优先本地安装（不联网）',
+              ok and '--no-index' in pip_args and '--no-deps' in pip_args,
+              str(pip_args))
+
+        target = tempfile.mkdtemp(prefix='wps_wheel_')
+        originals = (installer._run, installer._user_site_dir,
+                     installer._imports_in_subprocess)
+        installer._run = lambda args, log=None, timeout=None: 1
+        installer._user_site_dir = lambda: target
+        installer._imports_in_subprocess = lambda: True
+        try:
+            ok = installer._install_bundled_wheel(lambda text: None)
+        finally:
+            (installer._run, installer._user_site_dir,
+             installer._imports_in_subprocess) = originals
+        check('pip 用不了时也能直接解包装上', ok)
+        check('解包出来的确实是 pywpsrpc',
+              os.path.isfile(
+                  os.path.join(target, 'pywpsrpc', '__init__.py')),
+              target)
+        shutil.rmtree(target, ignore_errors=True)
 
     def stepper():
         if not steps:

@@ -618,8 +618,12 @@ class PreviewPanel:
         if live_h > 1:
             self._canvas_height = live_h
 
-        # 缩放或宽度变了，之前渲染的图就作废（否则会留着旧尺寸）
-        key = (self._mode, self._zoom, self._canvas_width)
+        # 缩放或宽度变了，之前渲染的图就作废（否则会留着旧尺寸）。
+        # 文档本身和它的版本号也要算进去：旋转 / 排序 / 删页之后页图变了，
+        # 但页码和尺寸可能都没变 —— 只看尺寸的话画面上还是旧页；
+        # 换文件时 revision 会重新数，所以还得带上实例编号。
+        key = (self._mode, self._zoom, self._canvas_width,
+               getattr(doc, 'serial', 0), getattr(doc, 'revision', 0))
         if key != getattr(self, '_flow_key', None):
             self._flow_key = key
             for ids in self._flow_items.values():

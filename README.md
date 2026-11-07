@@ -211,10 +211,13 @@ Select the backend (highest priority first):
 4. Default `auto`: prefer WPS (pywpsrpc), fall back to LibreOffice
 
 The WPS backend requires a local WPS Office installation and `pywpsrpc`.
-There is no official aarch64 wheel, so building from source may take a while;
-the app attempts the install and shows instructions if it fails. Conversions
-run on an isolated Xvfb display, so the WPS splash screen never flashes on the
-desktop.
+There is no official aarch64 wheel, so the app ships a prebuilt one and
+installs it offline (`pip --no-index --no-deps`); if pip is too old or not
+installed at all, the wheel is unpacked straight into the user site-packages —
+no network, no compiler, no Qt5 headers. Source builds are only attempted when
+the prebuilt wheel does not match the local Python / architecture.
+Conversions run on an isolated Xvfb display, so the WPS splash screen never
+flashes on the desktop.
 
 ---
 
@@ -295,7 +298,7 @@ pdf-editor-assistant/
 │   ├── design-system.md # Design system
 │   ├── print-plan.md    # Print feature plan
 │   └── ui/              # Screenshots
-└── tools/uitest.py      # UI self-test: synthesised real mouse events (194 checks)
+└── tools/uitest.py      # UI self-test: synthesised real mouse events (208 checks)
 ```
 
 ---
@@ -337,7 +340,7 @@ and Pillow.
 ## Development
 
 ```bash
-xvfb-run -a python3 tools/uitest.py      # UI self-test (194 checks, no display needed)
+xvfb-run -a python3 tools/uitest.py      # UI self-test (208 checks, no display needed)
 ```
 
 The self-test drives the real code paths with synthesised mouse events

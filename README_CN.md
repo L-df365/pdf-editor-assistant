@@ -199,7 +199,10 @@ output_path = backend.convert_to_pdf(input_path)
 4. 默认 `auto`：优先 WPS(pywpsrpc)，不可用时回退 LibreOffice
 
 WPS 后端依赖本机 WPS Office 和 `pywpsrpc`。aarch64 平台没有官方 wheel，
-源码编译可能较慢；应用会尝试自动安装，失败时给出提示和项目链接。
+应用直接用随包发布的预编译包离线安装（`pip --no-index --no-deps`）；
+机器上 pip 太旧或者根本没装 pip 时，会绕过 pip 把 wheel 直接解到用户
+site-packages —— 不联网、不编译，也不需要 Qt5 开发包。只有预编译包和
+本机 Python / 架构对不上时才会退回源码编译，失败时给出提示和项目链接。
 转换会自动使用独立的 Xvfb 虚拟屏幕，因此 WPS 的启动动画不会在桌面上闪现。
 
 ---
@@ -280,7 +283,7 @@ pdf-editor-assistant/
 │   ├── design-system.md # 设计系统
 │   ├── print-plan.md    # 打印功能方案
 │   └── ui/              # 界面截图
-└── tools/uitest.py      # 界面自测：合成真实鼠标事件（194 项）
+└── tools/uitest.py      # 界面自测：合成真实鼠标事件（208 项）
 ```
 
 ---
@@ -321,7 +324,7 @@ pdf-editor-assistant/
 ## 开发
 
 ```bash
-xvfb-run -a python3 tools/uitest.py      # 界面自测（194 项，不需要显示器）
+xvfb-run -a python3 tools/uitest.py      # 界面自测（208 项，不需要显示器）
 ```
 
 自测用合成鼠标事件走真实链路（点击 / 拖拽 / 悬停 / 右键），不碰真打印机

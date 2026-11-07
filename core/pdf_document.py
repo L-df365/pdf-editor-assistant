@@ -1,9 +1,14 @@
+import itertools
 import os
 import shutil
 import pymupdf
 import tempfile
 from .converter import DocumentConverter
 from .formats import IMAGE_EXTS
+
+#: 文档实例编号：同一个 PDFDocument 换文件时 revision 会重新数，
+#: 光看 revision 会让新文件的页图沿用旧文件的缓存。
+_SERIALS = itertools.count(1)
 
 
 class ChangeHistory:
@@ -106,6 +111,10 @@ class PDFDocument:
         self.converter = DocumentConverter()
         self._temp_dir = tempfile.mkdtemp(prefix='pdf_edit_')
         self._modified = False
+        #: 文档内容的版本号：每次改动 +1。预览要拿它判断缓存是否过期 ——
+        #: 旋转 / 排序之后页图会变，光看页码是看不出来的。
+        self._revision = 0
+        self._serial = next(_SERIALS)
         self.history = ChangeHistory(limit=5, temp_dir=self._temp_dir)
 
     @property
@@ -116,12 +125,26 @@ class PDFDocument:
     def is_modified(self):
         return self._modified
 
+    @property
+    def revision(self):
+        """内容版本号（改动一次 +1；预览缓存用它判断要不要重画）。"""
+        return self._revision
+
+    @property
+    def serial(self):
+        """实例编号（同一个对象换文件后也不会重复，缓存要一起看它）。"""
+        return self._serial
+
+    def _touch(self):
+        self._revision += 1
+
     def open(self, filepath):
         self.close()
         doc = pymupdf.open(filepath)
         self.doc = doc
         self.filepath = filepath
         self._modified = False
+        self._touch()
         self.history.reset()
         self.history.capture(self.doc)
 
@@ -135,6 +158,7 @@ class PDFDocument:
                 pass
             self.doc = None
             self.filepath = None
+            self._touch()
 
     def dispose(self):
         """退出时清理临时文件（历史快照、转换出来的 PDF）。"""
@@ -247,6 +271,7 @@ class PDFDocument:
             return
         self.history.commit(self.doc)
         self._modified = True
+        self._touch()
 
     def undo(self):
         if self.doc is None:
@@ -256,6 +281,7 @@ class PDFDocument:
             return False
         self.doc = restored
         self._modified = True
+        self._touch()
         return True
 
     def redo(self):
@@ -266,6 +292,7 @@ class PDFDocument:
             return False
         self.doc = restored
         self._modified = True
+        self._touch()
         return True
 
     def _select_pages(self, order):

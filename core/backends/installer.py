@@ -175,6 +175,63 @@ def bundled_wheels():
     return sorted(glob.glob(os.path.join(WHEELS_DIR, '*.whl')))
 
 
+def _user_site_dir():
+    """当前用户的 site-packages（pip --user 默认装到这里）。"""
+    try:
+        import site
+        path = site.getusersitepackages()
+    except Exception:
+        path = ''
+    if path:
+        return path
+    return os.path.join(
+        os.path.expanduser('~'), '.local', 'lib',
+        'python{}.{}/site-packages'.format(*sys.version_info[:2]))
+
+
+def _imports_in_subprocess():
+    """开一个新进程验证 pywpsrpc 能不能导入。
+
+    装完的包要新进程才一定看得见（当前进程的 import 缓存可能是旧的），
+    也顺便验证 .so 和本机 Python ABI 确实匹配。
+    """
+    try:
+        proc = subprocess.run(
+            [sys.executable, '-c', 'import pywpsrpc'],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            timeout=60)
+    except Exception:
+        return False
+    return proc.returncode == 0
+
+
+def _unpack_wheel(wheel, log):
+    """不经过 pip，直接把 wheel 里的 pywpsrpc 解到用户 site-packages。
+
+    为什么需要这条路：有的机器 pip 很老、不认 wheel 里的 manylinux2014
+    平台标签，或者干脆没装 pip。这时 pip 会去网上从源码编译 ——
+    编译要 Qt5 开发包和 sip 工具链，基本必然失败。解包只依赖标准库，
+    能装就一定能装。
+    """
+    import zipfile
+    target = _user_site_dir()
+    if not target:
+        log('找不到可写的用户 site-packages 目录')
+        return False
+    log('绕过 pip，直接解包到：{}'.format(target))
+    try:
+        os.makedirs(target, exist_ok=True)
+        with zipfile.ZipFile(wheel) as archive:
+            for name in archive.namelist():
+                if not name.startswith('pywpsrpc/'):
+                    continue
+                archive.extract(name, target)
+    except Exception as exc:
+        log('解包失败：{}'.format(exc))
+        return False
+    return _imports_in_subprocess()
+
+
 def _wheel_matches_platform(path):
     """这个 wheel 能不能装到当前机器上（看文件名里的平台标签）。"""
     name = os.path.basename(path)
@@ -293,22 +350,34 @@ def _install_packages(packages, log):
 def _install_bundled_wheel(log):
     """装随应用发布的预编译包（arm64 上 pywpsrpc 上游没有 wheel，
     有了它就不需要用户自己编译）。"""
-    for wheel in bundled_wheels():
-        if not _wheel_matches_platform(wheel):
-            continue
-        if 'pywpsrpc' not in os.path.basename(wheel):
-            continue
-        log('安装随应用发布的预编译包：{}'.format(
-            os.path.basename(wheel)))
-        rc = _run(
-            [sys.executable, '-m', 'pip', 'install', '--user',
-             '--force-reinstall', wheel],
-            log=log,
-        )
-        if rc == 0:
-            return True
-        log('预编译包安装失败，尝试其它方式')
+    wheels = [wheel for wheel in bundled_wheels()
+              if 'pywpsrpc' in os.path.basename(wheel)]
+    if not wheels:
+        # 缺 wheels/ 目录是最容易发生的部署事故：只拷了代码没带预编译包
+        log('没有找到随应用发布的预编译包（{}）'.format(WHEELS_DIR))
         return False
+
+    matched = [wheel for wheel in wheels if _wheel_matches_platform(wheel)]
+    if not matched:
+        log('预编译包和本机对不上：本机 Python {} / {}，包是 {}'.format(
+            platform.python_version(), platform.machine(),
+            '、'.join(os.path.basename(wheel) for wheel in wheels)))
+        return False
+
+    wheel = matched[0]
+    log('安装随应用发布的预编译包：{}'.format(os.path.basename(wheel)))
+    # --no-index/--no-deps：预编译包没有依赖，也不该因为机器没网就卡住
+    rc = _run(
+        [sys.executable, '-m', 'pip', 'install', '--user',
+         '--no-index', '--no-deps', '--force-reinstall', wheel],
+        log=log,
+    )
+    if rc == 0 and _imports_in_subprocess():
+        return True
+    if rc != 0:
+        log('pip 装不上（pip 版本太旧或没装 pip），改为直接解包')
+    if _unpack_wheel(wheel, log):
+        return True
     return False
 
 
@@ -320,15 +389,16 @@ def _install_pywpsrpc(log):
     if is_pywpsrpc_installed():
         return True
     if _install_bundled_wheel(log):
-        return is_pywpsrpc_installed()
-    log('没有匹配的预编译包，改为从源码安装（由应用完成，无需你操作）')
+        return True
+    log('没有可用的预编译包，改为从源码安装（需要 Qt5 开发包，可能失败）')
     rc = _run(
         [sys.executable, '-m', 'pip', 'install', '--user',
          'pywpsrpc', '-i',
          'https://pypi.tuna.tsinghua.edu.cn/simple'],
         log=log,
     )
-    return rc == 0 and is_pywpsrpc_installed()
+    return rc == 0 and (_imports_in_subprocess()
+                        or is_pywpsrpc_installed())
 
 
 def prepare_bridge(name, log=None):
@@ -349,9 +419,14 @@ def prepare_bridge(name, log=None):
 
     if name == 'wps':
         if not _install_pywpsrpc(log):
+            missing = not os.path.isdir(WHEELS_DIR)
             raise RuntimeError(
-                'WPS 转换支持准备失败（pywpsrpc 装不上）。'
-                '可改用 LibreOffice 转换，或重新安装 WPS Office 后重试。')
+                'WPS 转换支持准备失败（pywpsrpc 装不上，'
+                '本机 Python {} / {}）{}。'
+                '可改用 LibreOffice 转换，或重新安装 WPS Office 后重试。'.format(
+                    platform.python_version(), platform.machine(),
+                    '；应用缺少 wheels/ 目录，请用完整安装包重装'
+                    if missing else ''))
     return '{} 转换支持已就绪'.format(bridge['label'])
 
 
