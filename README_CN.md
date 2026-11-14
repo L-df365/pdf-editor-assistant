@@ -32,9 +32,12 @@
 
 ### 打印
 
-- 🖨️ **打印当前文档** —— 颜色、单双面（长边 / 短边）、份数、纸张、缩放、N-up、页码范围
-  （`1-5,8,10-`）
+- 🖨️ **打印当前文档** —— 颜色、单双面（长边 / 短边）、页面方向（自动 / 纵向 / 横向）、
+  份数、纸张、缩放、N-up、页码范围（`1-5,8,10-`）
   - 打印的是**当前编辑状态**：改了顺序、删了页、插了文件，打印出来的都是改后的
+  - 纸张和缩放默认是「按所选纸张自动排」：页面比纸张大就缩小、小就原样居中。
+    不会再把 PDF 自己的页面尺寸（比如 210×140mm 的车票）硬塞给打印机，
+    从而避免「纸张不符」的报错
   - 打印机不支持的组合会**明确拦下并说明原因**，不会悄悄打成黑白
 - 🗂️ **批量打印** —— 一批文件排队打印，每个文件可以单独设参数
   - 队列可排序（文件名 / 修改时间 / 大小 / 类型），也能用每行的 ↑ ↓ 手动调顺序
@@ -217,13 +220,15 @@ site-packages —— 不联网、不编译，也不需要 Qt5 开发包。只有
 | 单双面（单面 / 双面长边 / 双面短边） | `sides` |
 | 份数 | `copies` |
 | 纸张 | `media` |
-| 缩放 | `print-scaling` |
+| 缩放 | `print-scaling`（默认 `auto`，让内容排到所选纸张上） |
+| 页面方向（自动 / 纵向 / 横向） | `orientation-requested` |
 | N-up | `number-up` + `number-up-layout` |
 | 页码范围 | `page-ranges` |
 
 因此「每个文件单独设参数」= 拆成多个作业，参数相同的连续文件可以合并成一个作业。
 提交前会用 IPP 能力属性（`sides-supported`、`print-color-mode-supported`、
-`media-supported`、`number-up-supported`）检查这台打印机支不支持，
+`media-supported`、`number-up-supported`、`orientation-requested-supported`）
+检查这台打印机支不支持，
 不支持就拦下并说明原因。
 
 `core/print_core/` 是打印的唯一实现，不依赖 tkinter 也不依赖 PyMuPDF；
@@ -283,7 +288,7 @@ pdf-editor-assistant/
 │   ├── design-system.md # 设计系统
 │   ├── print-plan.md    # 打印功能方案
 │   └── ui/              # 界面截图
-└── tools/uitest.py      # 界面自测：合成真实鼠标事件（208 项）
+└── tools/uitest.py      # 界面自测：合成真实鼠标事件（215 项）
 ```
 
 ---
@@ -324,7 +329,7 @@ pdf-editor-assistant/
 ## 开发
 
 ```bash
-xvfb-run -a python3 tools/uitest.py      # 界面自测（208 项，不需要显示器）
+xvfb-run -a python3 tools/uitest.py      # 界面自测（215 项，不需要显示器）
 ```
 
 自测用合成鼠标事件走真实链路（点击 / 拖拽 / 悬停 / 右键），不碰真打印机

@@ -12,8 +12,9 @@ import os
 
 #: 缩放方式 → CUPS print-scaling
 SCALING_LABELS = (
-    ('', '打印机默认'),
-    ('auto-fit', '适合页面'),
+    ('', '自动'),
+    ('auto', '自动'),
+    ('auto-fit', '适合页面（可放大）'),
     ('fit', '缩小到可打印区域'),
     ('fill', '填满页面'),
     ('none', '实际大小'),
@@ -32,6 +33,13 @@ DUPLEX_LABELS = (
     ('one', '单面'),
     ('long', '双面（长边翻页）'),
     ('short', '双面（短边翻页）'),
+)
+
+#: 页面方向 → CUPS orientation-requested（3 纵向 / 4 横向）
+ORIENTATION_LABELS = (
+    ('', '自动'),
+    ('portrait', '纵向'),
+    ('landscape', '横向'),
 )
 
 #: N-up 版式 → CUPS number-up-layout
@@ -76,10 +84,10 @@ class PrintOptions:
     """一组打印参数。空字符串/None = 不指定。"""
 
     __slots__ = ('pages', 'copies', 'media', 'scaling', 'color', 'duplex',
-                 'nup', 'nup_layout')
+                 'nup', 'nup_layout', 'orientation')
 
     def __init__(self, pages='', copies=1, media='', scaling='', color='',
-                 duplex='', nup=1, nup_layout=''):
+                 duplex='', nup=1, nup_layout='', orientation=''):
         self.pages = pages or ''
         self.copies = int(copies or 1)
         self.media = media or ''
@@ -88,15 +96,17 @@ class PrintOptions:
         self.duplex = duplex or ''
         self.nup = int(nup or 1)
         self.nup_layout = nup_layout or ''
+        self.orientation = orientation or ''
 
     def copy(self):
         return PrintOptions(self.pages, self.copies, self.media, self.scaling,
-                            self.color, self.duplex, self.nup, self.nup_layout)
+                            self.color, self.duplex, self.nup,
+                            self.nup_layout, self.orientation)
 
     def is_default(self):
         """除了份数之外都没设置 = 没改过。"""
         return not any((self.pages, self.media, self.scaling, self.color,
-                        self.duplex)) and self.nup <= 1
+                        self.duplex, self.orientation)) and self.nup <= 1
 
     def merged(self, default):
         """用默认值补齐没有设置的字段（批量打印的"公共默认 + 覆盖"）。"""
@@ -122,6 +132,10 @@ class PrintOptions:
     def color_mode(self):
         return {'color': 'color', 'mono': 'monochrome'}.get(self.color, '')
 
+    def orientation_requested(self):
+        """翻成 CUPS 的 orientation-requested（3 纵向 / 4 横向）。"""
+        return {'portrait': 3, 'landscape': 4}.get(self.orientation, '')
+
     # -- 提交 --------------------------------------------------------
 
     def to_cups(self, page_ranges=''):
@@ -137,8 +151,14 @@ class PrintOptions:
             options['copies'] = str(self.copies)
         if self.media:
             options['media'] = self.media
-        if self.scaling:
-            options['print-scaling'] = self.scaling
+        # 不指定 print-scaling 时，pdftopdf 会原样保留文档自己的页面尺寸：
+        # 一张 210×140mm 的票据在 A4 上打印时，PostScript 里写的就是
+        # 140×210mm，打印机会因为「纸张不符」拒印。auto = 用所选纸张当
+        # 目标尺寸（比纸张大的缩小、小的原样居中），这是唯一安全的默认值。
+        options['print-scaling'] = self.scaling or 'auto'
+        orientation = self.orientation_requested()
+        if orientation:
+            options['orientation-requested'] = str(orientation)
         color = self.color_mode()
         if color:
             options['print-color-mode'] = color
@@ -161,6 +181,9 @@ class PrintOptions:
                           'short': '双面短边'}[self.duplex])
         if self.media:
             parts.append(self.media)
+        if self.orientation:
+            parts.append({'portrait': '纵向', 'landscape': '横向'}[
+                self.orientation])
         if self.nup > 1:
             parts.append('{} 页/张'.format(self.nup))
         if self.copies > 1:

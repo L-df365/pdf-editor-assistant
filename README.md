@@ -37,10 +37,15 @@ per-file print settings.
 
 ### Printing
 
-- 🖨️ **Print the current document** — colour, duplex (long / short edge), copies,
-  paper, scaling, N-up, page ranges (`1-5,8,10-`)
+- 🖨️ **Print the current document** — colour, duplex (long / short edge), page
+  orientation (auto / portrait / landscape), copies, paper, scaling, N-up,
+  page ranges (`1-5,8,10-`)
   - Prints the **current editing state**: reorder, delete or insert first and the
     printout matches
+  - Paper and scaling default to "lay the content out on the selected paper":
+    larger pages are reduced, smaller ones are centred at their original size.
+    The PDF's own page size (say a 210×140 mm ticket) is never sent to the
+    printer as-is, which used to trigger "paper size mismatch" errors
   - Combinations the printer does not support are **blocked with a reason**, never
     silently downgraded (e.g. colour → black and white)
 - 🗂️ **Batch printing** — queue many files and set options per file
@@ -232,15 +237,17 @@ attribute:
 | Duplex (one-sided / long-edge / short-edge) | `sides` |
 | Copies | `copies` |
 | Paper | `media` |
-| Scaling | `print-scaling` |
+| Scaling | `print-scaling` (defaults to `auto` so content lands on the paper) |
+| Orientation (auto / portrait / landscape) | `orientation-requested` |
 | N-up | `number-up` + `number-up-layout` |
 | Page ranges | `page-ranges` |
 
 So "set options per file" means splitting into several jobs; consecutive files
 with identical options can be merged into one job. Before submitting, the app
 checks what the printer actually supports (`sides-supported`,
-`print-color-mode-supported`, `media-supported`, `number-up-supported`) and
-blocks unsupported combinations with an explanation.
+`print-color-mode-supported`, `media-supported`, `number-up-supported`,
+`orientation-requested-supported`) and blocks unsupported combinations with an
+explanation.
 
 `core/print_core/` is the single implementation of printing — no tkinter, no
 PyMuPDF. Printing the open document (`print_single`) and batch printing
@@ -298,7 +305,7 @@ pdf-editor-assistant/
 │   ├── design-system.md # Design system
 │   ├── print-plan.md    # Print feature plan
 │   └── ui/              # Screenshots
-└── tools/uitest.py      # UI self-test: synthesised real mouse events (208 checks)
+└── tools/uitest.py      # UI self-test: synthesised real mouse events (215 checks)
 ```
 
 ---
@@ -340,7 +347,7 @@ and Pillow.
 ## Development
 
 ```bash
-xvfb-run -a python3 tools/uitest.py      # UI self-test (208 checks, no display needed)
+xvfb-run -a python3 tools/uitest.py      # UI self-test (215 checks, no display needed)
 ```
 
 The self-test drives the real code paths with synthesised mouse events

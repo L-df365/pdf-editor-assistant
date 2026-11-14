@@ -18,7 +18,8 @@
 
 from .errors import PrintError
 from .jobs import (PrintJob, PrintOptions, PrintState, SCALING_LABELS,
-                   COLOR_LABELS, DUPLEX_LABELS, NUP_LAYOUTS)
+                   COLOR_LABELS, DUPLEX_LABELS, NUP_LAYOUTS,
+                   ORIENTATION_LABELS)
 from . import backend
 from . import convert
 from . import ranges
@@ -28,6 +29,7 @@ __all__ = [
     'PrintError', 'PrintJob', 'PrintOptions', 'PrintState', 'PrintQueue',
     'print_single', 'print_batch', 'backend', 'convert', 'ranges',
     'SCALING_LABELS', 'COLOR_LABELS', 'DUPLEX_LABELS', 'NUP_LAYOUTS',
+    'ORIENTATION_LABELS',
 ]
 
 
@@ -64,6 +66,9 @@ def check_capabilities(printer, options, page_count=0):
         raise PrintError('该打印机不支持所选纸张')
     if not printer.supports_nup(options.nup):
         raise PrintError('该打印机不支持每张 {} 页'.format(options.nup))
+    if not printer.supports_orientation(options.orientation):
+        raise PrintError('该打印机不支持{}'.format(
+            _orientation_label(options.orientation)))
 
 
 def _duplex_label(mode):
@@ -73,6 +78,10 @@ def _duplex_label(mode):
 
 def _color_label(mode):
     return {'color': '彩色', 'mono': '黑白'}.get(mode, '颜色')
+
+
+def _orientation_label(mode):
+    return {'portrait': '纵向打印', 'landscape': '横向打印'}.get(mode, '所选方向')
 
 
 def submit_job(job, printer=None, on_event=None, workdir=None):

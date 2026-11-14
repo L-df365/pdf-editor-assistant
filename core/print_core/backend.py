@@ -74,6 +74,8 @@ class PrinterInfo:
         self.media_default = attrs.get('media-default', '')
         self.nup = list(attrs.get('number-up-supported', [1]))
         self.scaling = list(attrs.get('print-scaling-supported', []))
+        self.orientations = list(
+            attrs.get('orientation-requested-supported', []))
         self.supports_page_ranges = bool(
             attrs.get('page-ranges-supported', False))
         self.queued = attrs.get('queued-job-count', 0)
@@ -111,6 +113,17 @@ class PrinterInfo:
 
     def supports_media(self, media):
         return (not media) or (media in self.media)
+
+    def supports_orientation(self, mode):
+        """mode: '' / portrait / landscape。
+
+        打印机没声明支持列表时按支持处理 —— 标准属性，绝大多数都认，
+        不需要为了保守把功能锁死。
+        """
+        if not mode:
+            return True
+        wanted = {'portrait': 3, 'landscape': 4}[mode]
+        return (not self.orientations) or wanted in self.orientations
 
     def supports_nup(self, nup):
         return (not nup) or (nup in self.nup)

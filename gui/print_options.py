@@ -7,7 +7,7 @@
 import tkinter as tk
 from tkinter import ttk
 
-from core.print_core import PrintOptions
+from core.print_core import ORIENTATION_LABELS, PrintOptions
 from core.print_core import backend
 from core.print_core import ranges
 from gui.theme import DANGER, INK, INK_2, INK_3, LINE, PAPER, font
@@ -85,6 +85,12 @@ class PrintOptionsForm(tk.Frame):
             value='', command=lambda v: self._changed())
         self.duplex_choice.pack(side='left')
 
+        orientation_row = self._row('方向')
+        self.orientation_choice = Segmented(
+            orientation_row, list(ORIENTATION_LABELS), value='',
+            command=lambda v: self._changed())
+        self.orientation_choice.pack(side='left')
+
         copies_row = self._row('份数')
         self.copies = tk.Spinbox(copies_row, from_=1, to=99, width=4,
                                  font=font('num'), justify='center',
@@ -102,8 +108,10 @@ class PrintOptionsForm(tk.Frame):
         self.media_box.bind('<<ComboboxSelected>>', lambda e: self._changed())
 
         scaling_row = self._row('缩放')
+        # 「自动」= 用所选纸张当目标尺寸（比纸张大的缩小、小的原样居中）；
+        # 不指定时 pdftopdf 会保留文档自己的尺寸，打印机就会报「纸张不符」。
         self.scaling_choice = Segmented(
-            scaling_row, [('', '默认'), ('auto-fit', '适合'), ('none', '原始'),
+            scaling_row, [('', '自动'), ('auto-fit', '适合'), ('none', '原始'),
                           ('fill', '填满')], value='',
             command=lambda v: self._changed())
         self.scaling_choice.pack(side='left')
@@ -149,7 +157,12 @@ class PrintOptionsForm(tk.Frame):
         # 打印机不支持的选项直接置灰，并且不预选
         self.duplex_choice.set_value('')
         self.color_choice.set_value('')
+        self.orientation_choice.set_value('')
         if printer:
+            self.orientation_choice.disable_item(
+                'portrait', not printer.supports_orientation('portrait'))
+            self.orientation_choice.disable_item(
+                'landscape', not printer.supports_orientation('landscape'))
             self.duplex_choice.disable_item('long',
                                             not printer.supports_duplex('long'))
             self.duplex_choice.disable_item('short',
@@ -188,10 +201,12 @@ class PrintOptionsForm(tk.Frame):
             color=self.color_choice.get(),
             duplex=self.duplex_choice.get(),
             nup=self.nup_choice.get() or 1,
+            orientation=self.orientation_choice.get(),
         )
 
     def set_options(self, opts):
         self.color_choice.set_value(opts.color, notify=False)
+        self.orientation_choice.set_value(opts.orientation, notify=False)
         self.duplex_choice.set_value(opts.duplex, notify=False)
         self.scaling_choice.set_value(opts.scaling, notify=False)
         self.nup_choice.set_value(opts.nup, notify=False)
@@ -235,6 +250,9 @@ class PrintOptionsForm(tk.Frame):
             issues.append('该打印机不支持所选纸张')
         if not printer.supports_nup(opts.nup):
             issues.append('该打印机不支持每张 {} 页'.format(opts.nup))
+        if not printer.supports_orientation(opts.orientation):
+            issues.append('该打印机不支持{}'.format(
+                _orientation_label(opts.orientation)))
         if opts.color == 'mono' and not backend.pdf_renderer():
             issues.append(
                 '这台机器没有 Ghostscript/MuPDF，PDF 转 PostScript 时'
@@ -269,6 +287,10 @@ def _duplex_label(mode):
 
 def _color_label(mode):
     return {'color': '彩色', 'mono': '黑白'}.get(mode, '颜色')
+
+
+def _orientation_label(mode):
+    return {'portrait': '纵向打印', 'landscape': '横向打印'}.get(mode, '所选方向')
 
 
 def _sides_text(sides):

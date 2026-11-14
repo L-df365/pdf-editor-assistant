@@ -1755,6 +1755,84 @@ def run(app):
               target)
         shutil.rmtree(target, ignore_errors=True)
 
+    @step
+    def s23_print_paper_and_orientation():
+        """纸张不符的根因：不给 print-scaling，pdftopdf 会把 PDF 自己的
+        页面尺寸（比如 210×140mm 的车票）原样写进 PostScript。
+        打印机拿它和纸盒里的 A4 一对，就报「纸张不符」。
+        """
+        import subprocess
+
+        import pymupdf
+
+        from core.print_core import PrintOptions, backend
+        from gui.print_options import PrintOptionsForm
+
+        defaults = PrintOptions().to_cups()
+        check('默认把内容排到所选纸张上（print-scaling=auto）',
+              defaults.get('print-scaling') == 'auto', str(defaults))
+        check('默认不强行改方向', 'orientation-requested' not in defaults,
+              str(defaults))
+        check('纵向映射成 orientation-requested=3',
+              PrintOptions(orientation='portrait').to_cups().get(
+                  'orientation-requested') == '3')
+        check('横向映射成 orientation-requested=4',
+              PrintOptions(orientation='landscape').to_cups().get(
+                  'orientation-requested') == '4')
+
+        printer = backend.get_printer('KONICA-MINOLTA-C368Series')
+        if printer is not None:
+            check('打印机声明支持纵向 / 横向',
+                  printer.supports_orientation('portrait')
+                  and printer.supports_orientation('landscape'))
+
+        form = PrintOptionsForm(app.root)
+        if printer is not None:
+            form.set_printer(printer)
+        form.orientation_choice.set_value('landscape')
+        check('表单里能选页面方向',
+              form.options().orientation == 'landscape',
+              form.options().orientation)
+        form.destroy()
+
+        # 真实链路验证：用 CUPS 的 pdftopdf 按同一组参数转一遍。
+        # 没有 cups-filters 或拿不到 PPD 的机器上跳过（不装打印也能用应用）。
+        filter_path = '/usr/lib/cups/filter/pdftopdf'
+        ppd = printer._ppd_path() if printer is not None else None
+        if not (os.path.exists(filter_path) and ppd):
+            return
+        workdir = tempfile.mkdtemp(prefix='print_scaling_')
+        try:
+            ticket = os.path.join(workdir, 'ticket.pdf')
+            doc = pymupdf.open()
+            page = doc.new_page(width=595.3, height=396.6)   # 210 × 140 mm
+            page.insert_text((40, 80), 'ticket', fontsize=24)
+            doc.save(ticket)
+            doc.close()
+
+            def page_size(options):
+                out = os.path.join(workdir, 'out.pdf')
+                args = [filter_path, '1', 'oem', 't', '1',
+                        ' '.join('{}={}'.format(name, value)
+                                 for name, value in options.to_cups().items()),
+                        ticket]
+                with open(out, 'wb') as stream:
+                    subprocess.run(args, env=dict(os.environ, PPD=ppd),
+                                   stdout=stream, stderr=subprocess.DEVNULL,
+                                   check=True)
+                result = pymupdf.open(out)
+                rect = result.load_page(0).rect
+                result.close()
+                return rect.width, rect.height
+
+            width, height = page_size(
+                PrintOptions(media='iso_a4_210x297mm'))
+            check('车票页面会排到 A4 上（不再纸张不符）',
+                  abs(width - 595) < 6 and abs(height - 842) < 6,
+                  '{:.0f}x{:.0f}pt'.format(width, height))
+        finally:
+            shutil.rmtree(workdir, ignore_errors=True)
+
     def stepper():
         if not steps:
             print('\n===== 结果 =====')
