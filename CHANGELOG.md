@@ -40,10 +40,15 @@
 - **选了黑白，打出来还是彩色**：CUPS 收到了 `print-color-mode=monochrome`，
   但默认用 Poppler 把 PDF 转 PostScript —— **Poppler 不会转灰度**，颜色原样
   送进了打印机（CUPS 日志里一直有这条警告）。
-  → 黑白打印时自动补 `pdftops-renderer=gs`（Ghostscript；没有就试 MuPDF），
-  同时给这台机器补上厂商的 `SelectColor=Grayscale`。实测新作业不再报
-  Poppler 灰度警告。
-  → 机器上连 Ghostscript / MuPDF 都没有时，打印面板会直接提示，不再默默失效。
+  → 黑白打印改由应用自己转灰度：先用 `pdftocairo` 重排一遍（把系统字体
+  真正嵌进 PDF），再用 Ghostscript 只做颜色转换（`pdfwrite` +
+  `DeviceGray`），最后交给 Poppler 出 PostScript。
+  → 第一次的修法是让 CUPS 换 Ghostscript 渲染（`pdftops-renderer=gs`），
+  结果**发票号码整段消失**：车票/发票里的楷体、宋体常常没有内嵌，
+  gs 会拿 DroidSansFallback 顶替，GBK 编码里数字和字母的 CID 对不上字形，
+  只剩中文；二维码也会被渲染花。自己先转灰度就不会走到 gs 的字体替换。
+  → 已经转好灰度的作业不再指定 `pdftops-renderer`（让 Poppler 保证二维码
+  清晰）。机器上缺 Ghostscript 或 pdftocairo 时，打印面板会直接提示。
 
 - **批量打印磁盘上的 PDF 会把原文件删掉**（自测发现的丢数据问题）：
   打印时用的是文件自己，收尾却把"临时文件"一起删了。
@@ -74,9 +79,10 @@
 
 - 文件选择面板支持指定类型（选名单表格时只列 CSV / TXT / XLSX）
 - 「页码范围」标签在窄栏里被截成「页码范」，加宽了
-- 界面自测 132 → **215 项**（拆分方式、命名规则、表格读取、真拆文件、
+- 界面自测 132 → **224 项**（拆分方式、命名规则、表格读取、真拆文件、
   Ctrl/Shift 多选、提取结果、菜单层级、黑白打印选项、打印不删原文件、
-  旋转/排序后预览重画、WPS 预编译包离线安装与解包兜底、纸张缩放与方向映射）
+  旋转/排序后预览重画、WPS 预编译包离线安装与解包兜底、纸张缩放与方向映射、
+  黑白转换后无彩色像素且号码仍在）
 
 ## v1.3.6 (2026-10-22)
 

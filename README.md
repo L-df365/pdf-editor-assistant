@@ -249,6 +249,15 @@ checks what the printer actually supports (`sides-supported`,
 `orientation-requested-supported`) and blocks unsupported combinations with an
 explanation.
 
+Monochrome printing does not rely on CUPS' Ghostscript renderer. Tickets,
+invoices and ID cards often reference KaiTi/SimSun as CID fonts without
+embedding them; when Ghostscript substitutes a font, entire runs of digits and
+letters disappear (and QR codes get mangled). The app therefore converts to
+grayscale itself: `pdftocairo` embeds the system fonts, Ghostscript only
+converts colours, and Poppler produces the final PostScript. This needs
+`pdftocairo` (poppler-utils) and `gs` on the machine; the print panel says so
+when either is missing.
+
 `core/print_core/` is the single implementation of printing — no tkinter, no
 PyMuPDF. Printing the open document (`print_single`) and batch printing
 (`print_batch`) share the same option mapping, conversion and error handling.

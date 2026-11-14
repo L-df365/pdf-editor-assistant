@@ -182,17 +182,20 @@ class PrinterInfo:
                 choices.append(value)
         return choices
 
-    def extra_options(self, options):
+    def extra_options(self, options, gray_prepared=False):
         """补上标准 IPP 属性覆盖不到的地方。
 
         两件事：
         1. 黑白打印要显式指定 PDF→PS 的渲染器：默认的 Poppler 不会转灰度，
-           出来还是彩的。
+           出来还是彩的。**但如果内容已经由应用转成灰度了**（gray_prepared），
+           就不能再选 gs —— Ghostscript 顶替未内嵌的中文 CID 字体时会
+           把数字、字母整段吞掉（车票号码消失）。这时交给 Poppler 就好。
         2. 有些打印机的 PPD 里没有标准的 ColorModel，只有厂商自己的颜色选项
            （例如 Konica 的 SelectColor），这时 print-color-mode 会被驱动丢掉。
         """
         extras = {}
-        if options.get('print-color-mode') == 'monochrome':
+        if (options.get('print-color-mode') == 'monochrome'
+                and not gray_prepared):
             renderer = pdf_renderer()
             if renderer:
                 extras['pdftops-renderer'] = renderer
@@ -308,16 +311,25 @@ def pdf_renderer():
     return None
 
 
-def submit(printer_name, pdf_path, title, options, printer=None):
+def grayscale_ready():
+    """应用自己转灰度需要的工具在不在（pdftocairo 内嵌字体 + gs 转色）。"""
+    return bool(shutil.which('pdftocairo') and shutil.which('gs'))
+
+
+def submit(printer_name, pdf_path, title, options, printer=None,
+           gray_prepared=False):
     """提交一个打印作业，返回作业号。
 
     options 是 IPP 作业属性（见 options.PrintOptions.to_cups）。
     printer 给了的话，会按这台打印机的 PPD 补上厂商专属选项。
+    gray_prepared：PDF 内容已经是灰度的（应用自己转的），不要再让
+    cups-filters 换 Ghostscript 去转 —— 那个转换会丢字。
     """
     conn = _conn()
     options = dict(options)
     if printer is not None:
-        options.update(printer.extra_options(options))
+        options.update(printer.extra_options(options,
+                                             gray_prepared=gray_prepared))
     try:
         return conn.printFile(printer_name, pdf_path, title, options)
     except cups.IPPError as exc:

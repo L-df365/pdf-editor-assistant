@@ -98,10 +98,21 @@ def submit_job(job, printer=None, on_event=None, workdir=None):
     path = None
     # 磁盘上的 PDF 是直接拿来打印的：这份是用户自己的文件，绝不能删
     original = job.source if isinstance(job.source, str) else None
+    gray_prepared = False
     try:
         if on_event:
             on_event(job, PrintState.PREPARING, '准备文件')
         path = convert.to_pdf(job, workdir=workdir)
+
+        if options.color_mode() == 'monochrome':
+            # 先在应用里转成灰度 PDF，再交给 CUPS 用 Poppler 转 PS：
+            # CUPS 的 gs 渲染器遇到没内嵌的中文字体会把数字吞掉。
+            gray = convert.grayscale_pdf(path, workdir=workdir)
+            if gray:
+                if path != original:
+                    convert.cleanup(path)
+                path = gray
+                gray_prepared = True
 
         segments = ranges.parse(options.pages, convert.page_count(job))
         if options.pages and not segments:
@@ -112,14 +123,15 @@ def submit_job(job, printer=None, on_event=None, workdir=None):
             # 同一份文件里混了单双面 → 拆成多个作业（选项是作业级的）
             ids = convert.submit_segments(
                 path, segments, printer, options, page_ranges, job, on_event,
-                workdir)
+                workdir, gray_prepared=gray_prepared)
             job.job_ids = ids
             return ids[0] if ids else None
 
         if on_event:
             on_event(job, PrintState.SUBMITTING, '提交中')
         job_id = backend.submit(printer.name, path, job.title(),
-                                options.to_cups(page_ranges), printer=printer)
+                                options.to_cups(page_ranges), printer=printer,
+                                gray_prepared=gray_prepared)
         job.job_ids = [job_id]
         if on_event:
             on_event(job, PrintState.PRINTING, '作业 #{}'.format(job_id))

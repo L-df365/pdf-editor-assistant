@@ -8,6 +8,8 @@
 """
 
 import os
+import shutil
+import subprocess
 import tempfile
 
 from .errors import PrintError
@@ -64,6 +66,40 @@ def convert_file(path, workdir=None):
         raise PrintError('转换成 PDF 失败：{}'.format(exc))
 
 
+def grayscale_pdf(path, workdir=None):
+    """把 PDF 转成灰度 PDF；工具不全或转换失败时返回 None。
+
+    为什么不交给 CUPS 的「gs 渲染器」：这份车票的中文字体没有内嵌，
+    Ghostscript 会拿 DroidSansFallback 顶替，而 GBK 编码里数字 / 字母的
+    CID 在替代字体里对不上字形 —— 号码会整段消失（中文却还在）。
+    先用 pdftocairo 重新导出：它走 fontconfig 找到系统里的宋体并内嵌，
+    再让 gs 只做颜色转换（pdfwrite 不重排文字），数字就不会丢。
+    """
+    if not (shutil.which('pdftocairo') and shutil.which('gs')):
+        return None
+    embedded = temp_path(workdir)
+    gray = temp_path(workdir)
+    try:
+        subprocess.run(
+            ['pdftocairo', '-pdf', path, embedded],
+            check=True, stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL, timeout=300)
+        subprocess.run(
+            ['gs', '-q', '-dNOPAUSE', '-dBATCH', '-dSAFER',
+             '-sDEVICE=pdfwrite',
+             '-sColorConversionStrategy=Gray',
+             '-dProcessColorModel=/DeviceGray',
+             '-o', gray, embedded],
+            check=True, stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL, timeout=300)
+    except (OSError, subprocess.SubprocessError):
+        cleanup(embedded)
+        cleanup(gray)
+        return None
+    cleanup(embedded)
+    return gray
+
+
 def page_count(job):
     """作业源有多少页（转换之前只能给出内存文档的页数）。"""
     source = job.source
@@ -91,7 +127,7 @@ def cleanup(path):
 
 
 def submit_segments(path, segments, printer, options, page_ranges, job,
-                     on_event=None, workdir=None):
+                     on_event=None, workdir=None, gray_prepared=False):
     """页码范围里混了单双面模式时：切成多段，每段一个作业。
 
     CUPS 的单双面是作业级选项，同一份文件里"1-12 双面、13 单面"
@@ -119,6 +155,8 @@ def submit_segments(path, segments, printer, options, page_ranges, job,
         if on_event:
             on_event(job, 'submitting', '提交分段 {}'.format(sub_ranges))
         job_id = backend.submit(printer.name, path, job.title(),
-                                sub_options.to_cups(sub_ranges))
+                                sub_options.to_cups(sub_ranges),
+                                printer=printer,
+                                gray_prepared=gray_prepared)
         ids.append(job_id)
     return ids

@@ -1163,6 +1163,11 @@ def run(app):
         check('彩色不强制灰度渲染器',
               'pdftops-renderer' not in printer.extra_options(color),
               str(printer.extra_options(color)))
+        # 应用自己已经转好灰度时，不能再让 cups-filters 换 Ghostscript：
+        # gs 顶替未内嵌的中文 CID 字体时会把数字整段吞掉
+        prepared = printer.extra_options(mono, gray_prepared=True)
+        check('内容已是灰度时不再让 gs 渲染',
+              'pdftops-renderer' not in prepared, str(prepared))
 
     @step
     def s16_split():
@@ -1832,6 +1837,97 @@ def run(app):
                   '{:.0f}x{:.0f}pt'.format(width, height))
         finally:
             shutil.rmtree(workdir, ignore_errors=True)
+
+    @step
+    def s24_mono_keeps_numbers():
+        """黑白打印不能丢字。
+
+        回归：CUPS 的 gs 渲染器遇到没内嵌的中文 CID 字体（发票/车票常见）
+        会用 DroidSansFallback 顶替，GBK 里数字和字母的 CID 对不上字形，
+        号码整段消失。现在由应用先把 PDF 转成灰度（pdftocairo 内嵌字体 +
+        gs 只转颜色），再交给 Poppler 出 PS。
+        """
+        import pymupdf
+
+        from core.print_core import (PrintOptions, backend, convert,
+                                     print_single)
+        from core.print_core.backend import PrinterInfo
+
+        check('灰度转换工具齐全（pdftocairo + gs）',
+              backend.grayscale_ready(), '缺工具')
+
+        ticket = '/home/oem/桌面/连申线/报销/10.16-226.pdf'
+        if os.path.isfile(ticket) and backend.grayscale_ready():
+            gray = convert.grayscale_pdf(ticket)
+            check('车票能转成灰度 PDF', bool(gray), str(gray))
+            if gray:
+                doc = pymupdf.open(gray)
+                page = doc.load_page(0)
+                pix = page.get_pixmap(dpi=110)
+                samples = pix.samples
+                colored = sum(1 for i in range(0, len(samples), 3)
+                              if samples[i] != samples[i + 1]
+                              or samples[i + 1] != samples[i + 2])
+                check('灰度 PDF 里没有彩色像素', colored == 0, str(colored))
+                # 发票号码那一行：数字丢了的话只剩左边几个汉字，
+                # 这一块（x 50→200pt）的墨点会少得可怜
+                pix = page.get_pixmap(dpi=150,
+                                      clip=pymupdf.Rect(50, 44, 200, 62))
+                dark = sum(1 for i in range(0, len(pix.samples), 3)
+                           if pix.samples[i] < 128)
+                check('黑白转换后发票号码还在', dark > 300, str(dark))
+                doc.close()
+                convert.cleanup(gray)
+
+        # 走一遍真实提交：作业里不应再有 gs 渲染器，送出去的 PDF 是灰的
+        printer = PrinterInfo('FAKE', {'printer-state': 3,
+                                       'printer-is-accepting-jobs': True,
+                                       'print-color-mode-supported':
+                                           ['color', 'monochrome']})
+        captured = {}
+
+        class FakeConnection:
+            def printFile(self, name, path, title, options):
+                captured['options'] = dict(options)
+                captured['path'] = path
+                with open(path, 'rb') as stream:
+                    captured['data'] = stream.read()
+                return 7
+
+            def getJobAttributes(self, job_id):
+                return {'job-state': 7}
+
+            def cancelJob(self, job_id):
+                return True
+
+        originals = (backend.get_printer,)
+        backend.get_printer = lambda name: printer
+        backend.set_connection(FakeConnection())
+        try:
+            print_single(app.doc, PrintOptions(color='mono'),
+                         printer='FAKE')
+        finally:
+            backend.get_printer = originals[0]
+            backend.set_connection(None)
+
+        options = captured.get('options', {})
+        check('提交时仍然是黑白作业',
+              options.get('print-color-mode') == 'monochrome',
+              str(options))
+        check('提交时不再指定 gs 渲染器',
+              'pdftops-renderer' not in options, str(options))
+        check('送去打印的不是用户的原始文件',
+              captured.get('path') != app.doc.filepath,
+              str(captured.get('path')))
+        if captured.get('data'):
+            sent = pymupdf.open(stream=captured['data'], filetype='pdf')
+            pix = sent.load_page(0).get_pixmap(dpi=60)
+            samples = pix.samples
+            colored = sum(1 for i in range(0, len(samples), 3)
+                          if samples[i] != samples[i + 1]
+                          or samples[i + 1] != samples[i + 2])
+            check('送出去的 PDF 已经是灰度', colored == 0, str(colored))
+            sent.close()
 
     def stepper():
         if not steps:

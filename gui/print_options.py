@@ -253,10 +253,10 @@ class PrintOptionsForm(tk.Frame):
         if not printer.supports_orientation(opts.orientation):
             issues.append('该打印机不支持{}'.format(
                 _orientation_label(opts.orientation)))
-        if opts.color == 'mono' and not backend.pdf_renderer():
+        if opts.color == 'mono' and not backend.grayscale_ready():
             issues.append(
-                '这台机器没有 Ghostscript/MuPDF，PDF 转 PostScript 时'
-                '没法转成灰度，黑白可能不生效')
+                '黑白打印需要 pdftocairo 和 Ghostscript：缺了可能转不成'
+                '灰度，或者让 Ghostscript 直接替换字体而丢数字')
         # 页码范围
         text = opts.pages.strip()
         if text:

@@ -231,6 +231,12 @@ site-packages —— 不联网、不编译，也不需要 Qt5 开发包。只有
 检查这台打印机支不支持，
 不支持就拦下并说明原因。
 
+黑白打印不依赖 CUPS 的 Ghostscript 渲染器：工作证、车票、发票这类 PDF
+经常把楷体/宋体当成 CID 引用却没内嵌字体，gs 顶替字体时会把数字和字母
+整段吞掉（二维码也会花）。所以应用先在本地转灰度 —— `pdftocairo` 把系统
+字体真正嵌入，Ghostscript 只做颜色转换 —— 再交给 Poppler 出 PostScript。
+需要本机装有 `pdftocairo`（poppler-utils）和 `gs`，缺了打印面板会提示。
+
 `core/print_core/` 是打印的唯一实现，不依赖 tkinter 也不依赖 PyMuPDF；
 主程序打印当前文档（`print_single`）和批量打印（`print_batch`）走的是
 同一套参数映射、转换与错误处理。
