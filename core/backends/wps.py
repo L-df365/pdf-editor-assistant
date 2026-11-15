@@ -96,6 +96,18 @@ class PyWpsRpcBackend(ConversionBackend):
         return '未知原因'
 
     def convert_to_pdf(self, input_path, output_dir=None):
+        return self._convert(input_path, output_dir, 'pdf')
+
+    def convert_to_docx(self, input_path, output_dir=None):
+        """旧版 .doc → .docx（命名名单要读 Word 里的表格）。"""
+        ext = os.path.splitext(input_path)[1].lower()
+        if ext == '.docx':
+            return input_path
+        if ext not in ('.doc', '.rtf', '.odt'):
+            raise RuntimeError('不能转成 docx：{}'.format(ext or '未知格式'))
+        return self._convert(input_path, output_dir, 'docx')
+
+    def _convert(self, input_path, output_dir, target):
         ext = os.path.splitext(input_path)[1].lower()
         if ext == '.pdf':
             return input_path
@@ -103,7 +115,8 @@ class PyWpsRpcBackend(ConversionBackend):
         if not self.is_available():
             raise RuntimeError(self.unavailable_reason())
 
-        output_path = self.build_output_path(input_path, output_dir)
+        output_path = self.build_output_path(input_path, output_dir,
+                                             ext='.' + target)
         worker = os.path.join(os.path.dirname(__file__), 'wps_worker.py')
         pidfile = output_path + '.wps.pid'
         try:
@@ -119,7 +132,7 @@ class PyWpsRpcBackend(ConversionBackend):
                 wps_dir + (os.pathsep + old_ld if old_ld else ''))
 
         cmd = [sys.executable, worker,
-               os.path.abspath(input_path), output_path, pidfile]
+               os.path.abspath(input_path), output_path, pidfile, target]
 
         # WPS 是 GUI 程序。始终放进独立的 Xvfb 虚拟屏幕，
         # 这样启动动画/窗口只画在虚拟屏幕上，用户桌面不会闪现。

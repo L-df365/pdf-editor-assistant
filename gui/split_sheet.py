@@ -16,7 +16,7 @@ import threading
 import tkinter as tk
 from tkinter import filedialog, ttk
 
-from core import naming
+from core import formats, naming
 from core.naming import Namer, NamingError
 from core.splitter import (MODE_CHUNK, MODE_LABELS, MODE_PAGE, MODE_RANGES,
                            SplitError, count_pages, plan_split, split_pdf)
@@ -417,7 +417,7 @@ class SplitSheet(Sheet):
 
     def _pick_table(self):
         sheet = FileSheet(self, mode='open', exts=naming.TABLE_EXTS,
-                          title='选择名单表格', confirm_text='选择',
+                          title='选择名单文件', confirm_text='选择',
                           on_browse=self._browse_table)
         paths = sheet.wait(self)
         self._regrab()
@@ -426,9 +426,10 @@ class SplitSheet(Sheet):
 
     def _browse_table(self, directory):
         return filedialog.askopenfilename(
-            parent=self, title='选择名单表格',
+            parent=self, title='选择名单文件',
             initialdir=directory or HOME_DIR,
-            filetypes=[('表格文件', '*.csv *.tsv *.txt *.xlsx *.xlsm'),
+            filetypes=[('名单文件（表格 / Word）',
+                        formats.patterns(naming.TABLE_EXTS)),
                        ('所有文件', '*.*')])
 
     def _load_table(self, path):
@@ -465,7 +466,7 @@ class SplitSheet(Sheet):
         box = self.column_box
         if not self._table or not self._table.rows:
             box.configure(state='disabled', values=())
-            self.table_note.configure(text='还没选名单表格', foreground=INK_3)
+            self.table_note.configure(text='还没选名单文件', foreground=INK_3)
             return
         header = bool(self.header_var.get())
         labels = []
@@ -483,7 +484,8 @@ class SplitSheet(Sheet):
                                            has_header=header)
         note = '名单 {} 行'.format(len(values))
         if self._table.sheets:
-            note += '　·　工作表「{}」'.format(self._table.sheet)
+            label = '工作表' if self._table.kind == 'excel' else '表格'
+            note += '　·　{}「{}」'.format(label, self._table.sheet)
         if not values:
             note += '（这一列是空的）'
         self.table_note.configure(text=note, foreground=INK_3)
@@ -634,7 +636,7 @@ class SplitSheet(Sheet):
         if naming_mode == 'table':
             names = self._table_names()
             if not names:
-                raise NamingError('还没选名单表格，或者表里没有名字')
+                raise NamingError('还没选名单文件，或者表里没有名字')
 
         namer = Namer(
             template=self.template_entry.get().strip(),

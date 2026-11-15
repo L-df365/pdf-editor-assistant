@@ -34,17 +34,24 @@ class ConversionBackend:
     def convert_to_pdf(self, input_path, output_dir=None):
         raise NotImplementedError
 
+    def convert_to_docx(self, input_path, output_dir=None):
+        """把旧版 .doc 另存为 .docx（读取 Word 表格用）。
+
+        后端不支持时抛 NotImplementedError，由上层给出提示。
+        """
+        raise NotImplementedError
+
     @staticmethod
-    def build_output_path(input_path, output_dir=None):
+    def build_output_path(input_path, output_dir=None, ext='.pdf'):
         if output_dir is None:
             output_dir = tempfile.mkdtemp(prefix='pdf_edit_')
         os.makedirs(output_dir, exist_ok=True)
 
         base = os.path.splitext(os.path.basename(input_path))[0]
-        output_path = os.path.join(output_dir, base + '.pdf')
+        output_path = os.path.join(output_dir, base + ext)
         index = 1
         while os.path.exists(output_path):
             output_path = os.path.join(
-                output_dir, '{}_{}.pdf'.format(base, index))
+                output_dir, '{}_{}{}'.format(base, index, ext))
             index += 1
         return output_path

@@ -64,8 +64,10 @@ per-file print settings.
     - original name + number (default): `report_01.pdf`, `report_02.pdf` …
     - custom template: `{name}` `{n}` `{total}` `{page}` `{range}` `{date}` …,
       with start / step / zero-padding and optional prefix & suffix
-    - **names from a table**: pick a column from CSV / TXT / Excel (GBK aware,
-      sheet and column selectable; short lists fall back to the template)
+    - **names from a table**: pick a column from CSV / TXT / Excel / Word
+      (GBK aware; xls/xlsx, doc/docx; the real format is detected from the
+      file contents, not the extension; sheet or Word table selectable;
+      short lists fall back to the template)
   - Find & replace (regex), case conversion; illegal characters, over-long
     names and existing files (auto `(2)`) are handled for you
 - 🖱️ **Multi-select on thumbnails, extract the selection**
@@ -271,7 +273,7 @@ pdf-editor-assistant/
 ├── main.py              # Entry point (--print opens batch printing directly)
 ├── install.sh           # One-click installer
 ├── uninstall.sh         # Uninstaller
-├── requirements.txt     # Python dependencies (PyMuPDF / Pillow / openpyxl)
+├── requirements.txt     # Python dependencies (PyMuPDF / Pillow / openpyxl / xlrd / python-docx)
 ├── requirements-wps.txt # Optional: WPS backend dependency
 ├── core/                # UI-independent
 │   ├── converter.py     # Switchable backend facade

@@ -1394,6 +1394,8 @@ def run(app):
               sheet._allowed(os.path.join(FIXTURES, '名单.csv')))
         check('选表格时 PDF 不列出来',
               not sheet._allowed(PDF))
+        check('名单文件也能选 xls', sheet._allowed('/tmp/名单.xls'))
+        check('名单文件也能选 docx', sheet._allowed('/tmp/名单.docx'))
         sheet.destroy()
         app.root.update()
 
@@ -1928,6 +1930,113 @@ def run(app):
                           or samples[i + 1] != samples[i + 2])
             check('送出去的 PDF 已经是灰度', colored == 0, str(colored))
             sent.close()
+
+    @step
+    def s25_table_formats():
+        """名单表格：按文件内容认格式，支持 xls / Word。
+
+        回归：WPS 另存为「Excel 97-2003」时后缀可能还是 .xlsx，
+        以前只认后缀，openpyxl 直接报 File contains no valid workbook part。
+        """
+        import tempfile
+        import zipfile
+
+        import docx
+        import openpyxl
+        import xlwt
+
+        from core import backends, naming
+
+        tmp = tempfile.mkdtemp(prefix='tables_')
+        try:
+            xlsx = os.path.join(tmp, '名单.xlsx')
+            book = openpyxl.Workbook()
+            sheet = book.active
+            sheet.title = '名单'
+            for row in (['姓名', '编号'], ['张三', '001'], ['李四', '002']):
+                sheet.append(row)
+            book.save(xlsx)
+            data = naming.read_table(xlsx)
+            check('xlsx 能当名单', data.rows[1] == ['张三', '001'],
+                  str(data.rows[:2]))
+
+            xls = os.path.join(tmp, '旧表.xls')
+            legacy = xlwt.Workbook()
+            first = legacy.add_sheet('第一批')
+            for index, value in enumerate(['王五', '赵六']):
+                first.write(index, 0, value)
+            second = legacy.add_sheet('第二批')
+            second.write(0, 0, '孙七')
+            legacy.save(xls)
+            data = naming.read_table(xls, sheet='第二批')
+            check('xls 能读，也能切换工作表',
+                  data.rows == [['孙七']] and data.sheet == '第二批',
+                  str(data.rows))
+
+            disguised = os.path.join(tmp, '伪装.xlsx')
+            shutil.copyfile(xls, disguised)
+            data = naming.read_table(disguised)
+            check('后缀写着 xlsx、内容其实是 xls 也能读',
+                  data.rows == [['王五'], ['赵六']], str(data.rows))
+
+            word = docx.Document()
+            table = word.add_table(rows=2, cols=2)
+            table.cell(0, 0).text = '姓名'
+            table.cell(0, 1).text = '部门'
+            table.cell(1, 0).text = '周八'
+            table.cell(1, 1).text = '工程部'
+            word.add_paragraph('表格之外的说明')
+            docx_path = os.path.join(tmp, '名单.docx')
+            word.save(docx_path)
+            data = naming.read_table(docx_path)
+            check('Word 里的表格能当名单',
+                  data.rows == [['姓名', '部门'], ['周八', '工程部']],
+                  str(data.rows))
+            check('Word 的表格不叫「工作表」', data.kind == 'word',
+                  data.kind)
+
+            plain = docx.Document()
+            for name in ('甲', '乙'):
+                plain.add_paragraph(name)
+            plain_path = os.path.join(tmp, '段落.docx')
+            plain.save(plain_path)
+            data = naming.read_table(plain_path)
+            check('Word 没有表格时一行一个名字',
+                  data.rows == [['甲'], ['乙']], str(data.rows))
+
+            doc_path = os.path.join(tmp, '旧名单.doc')
+            with open(doc_path, 'wb') as handle:
+                handle.write(b'\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1'
+                             + b'\x00' * 512)
+
+            class FakeBackend:
+                def convert_to_docx(self, path, output_dir):
+                    target = os.path.join(output_dir, 'converted.docx')
+                    shutil.copyfile(docx_path, target)
+                    return target
+
+            original = backends.get_backend
+            backends.get_backend = lambda *a, **k: FakeBackend()
+            try:
+                data = naming.read_table(doc_path)
+            finally:
+                backends.get_backend = original
+            check('旧版 .doc 先转成 docx 再读',
+                  data.rows == [['姓名', '部门'], ['周八', '工程部']],
+                  str(data.rows))
+
+            bogus = os.path.join(tmp, '不是表格.xlsx')
+            with zipfile.ZipFile(bogus, 'w') as archive:
+                archive.writestr('hello.txt', 'x')
+            message = ''
+            try:
+                naming.read_table(bogus)
+            except naming.NamingError as exc:
+                message = str(exc)
+            check('改名的压缩包会说明「不是 Excel 也不是 Word」',
+                  '不是 Excel 也不是 Word' in message, message)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
 
     def stepper():
         if not steps:

@@ -3,7 +3,7 @@
 该脚本由 PyWpsRpcBackend 以独立进程方式调用，保证 WPS/Qt 的生命周期
 与 Tk 主程序隔离，并且全程不显示 WPS 窗口：
 
-    python3 wps_worker.py <input> <output.pdf>
+    python3 wps_worker.py <input> <output> [pidfile] [pdf|docx]
 
 退出码：0 成功，1 转换失败，2 参数错误。
 """
@@ -66,7 +66,7 @@ def _save_process_pid(rpc, pidfile):
         pass
 
 
-def _convert_writer(src, dst, pidfile):
+def _convert_writer(src, dst, pidfile, target='pdf'):
     from pywpsrpc.rpcwpsapi import createWpsRpcInstance, wpsapi
 
     hr, rpc = createWpsRpcInstance()
@@ -86,11 +86,12 @@ def _convert_writer(src, dst, pidfile):
             Visible=False,
         )
         _check(hr, 'Documents.Open')
-        hr = doc.SaveAs(
-            dst,
-            FileFormat=int(wpsapi.WdExportFormat.wdExportFormatPDF),
-        )
-        _check(hr, 'Document.SaveAs(PDF)')
+        if target == 'docx':
+            file_format = int(wpsapi.WdSaveFormat.wdFormatXMLDocument)
+        else:
+            file_format = int(wpsapi.WdExportFormat.wdExportFormatPDF)
+        hr = doc.SaveAs(dst, FileFormat=file_format)
+        _check(hr, 'Document.SaveAs({})'.format(target.upper()))
     finally:
         if doc is not None:
             try:
@@ -174,14 +175,22 @@ def main(argv=None):
     global _qapp
 
     argv = list(sys.argv if argv is None else argv)
-    if len(argv) not in (3, 4):
+    if len(argv) not in (3, 4, 5):
         sys.stderr.write(
-            'usage: wps_worker.py <input> <output.pdf> [pidfile]\n')
+            'usage: wps_worker.py <input> <output> [pidfile] [pdf|docx]\n')
         return 2
 
     src = os.path.abspath(argv[1])
     dst = os.path.abspath(argv[2])
-    pidfile = os.path.abspath(argv[3]) if len(argv) == 4 else None
+    target = 'pdf'
+    pidfile = None
+    if len(argv) >= 4:
+        if argv[3] in ('pdf', 'docx'):
+            target = argv[3]
+        else:
+            pidfile = os.path.abspath(argv[3])
+    if len(argv) == 5:
+        target = argv[4]
     os.makedirs(os.path.dirname(dst), exist_ok=True)
     if os.path.exists(dst):
         os.remove(dst)
@@ -194,15 +203,18 @@ def main(argv=None):
         from pywpsrpc.common import QtApp
         _qapp = QtApp([argv[0]])
 
+        if target != 'pdf' and ext not in WRITER_EXTS:
+            raise RuntimeError(
+                '只有 Word 文档能另存为 {}: {}'.format(target, ext))
         if ext in WRITER_EXTS:
-            _convert_writer(src, dst, pidfile)
+            _convert_writer(src, dst, pidfile, target)
         elif ext in CALC_EXTS:
             _convert_calc(src, dst, pidfile)
         else:
             _convert_impress(src, dst, pidfile)
 
         if not os.path.exists(dst) or os.path.getsize(dst) == 0:
-            raise RuntimeError('WPS 未生成 PDF 文件: {}'.format(dst))
+            raise RuntimeError('WPS 未生成文件: {}'.format(dst))
     except Exception as exc:
         traceback.print_exc()
         sys.stderr.write('WPS 转换失败: {}\n'.format(exc))

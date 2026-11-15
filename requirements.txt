@@ -1,3 +1,5 @@
 PyMuPDF>=1.23
 Pillow>=10.0
 openpyxl>=3.0
+xlrd>=2.0
+python-docx>=0.8

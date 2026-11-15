@@ -59,6 +59,18 @@ class LibreOfficeBackend(ConversionBackend):
         return '未找到 soffice 可执行文件（请安装 LibreOffice）'
 
     def convert_to_pdf(self, input_path, output_dir=None):
+        return self._convert(input_path, output_dir, 'pdf')
+
+    def convert_to_docx(self, input_path, output_dir=None):
+        """旧版 .doc → .docx（命名名单要读 Word 里的表格）。"""
+        ext = os.path.splitext(input_path)[1].lower()
+        if ext == '.docx':
+            return input_path
+        if ext not in ('.doc', '.rtf', '.odt'):
+            raise RuntimeError('不能转成 docx：{}'.format(ext or '未知格式'))
+        return self._convert(input_path, output_dir, 'docx')
+
+    def _convert(self, input_path, output_dir, target):
         ext = os.path.splitext(input_path)[1].lower()
         if ext == '.pdf':
             return input_path
@@ -66,7 +78,8 @@ class LibreOfficeBackend(ConversionBackend):
         if not self.soffice:
             raise RuntimeError(self.unavailable_reason())
 
-        output_path = self.build_output_path(input_path, output_dir)
+        output_path = self.build_output_path(input_path, output_dir,
+                                             ext='.' + target)
         basename = os.path.splitext(os.path.basename(input_path))[0]
 
         with tempfile.TemporaryDirectory(prefix='lo_out_') as work_dir, \
@@ -77,7 +90,7 @@ class LibreOfficeBackend(ConversionBackend):
                     '-env:UserInstallation=file://{}'.format(profile_dir),
                     '--headless',
                     '--norestore',
-                    '--convert-to', 'pdf',
+                    '--convert-to', target,
                     '--outdir', work_dir,
                     os.path.abspath(input_path),
                 ],
@@ -91,9 +104,10 @@ class LibreOfficeBackend(ConversionBackend):
                     'LibreOffice 转换失败:\n{}'.format(
                         result.stderr or result.stdout))
 
-            produced = os.path.join(work_dir, basename + '.pdf')
+            produced = os.path.join(work_dir, basename + '.' + target)
             if not os.path.exists(produced):
-                raise RuntimeError('转换后未找到 PDF: {}'.format(produced))
+                raise RuntimeError(
+                    '转换后未找到 {}: {}'.format(target.upper(), produced))
 
             shutil.move(produced, output_path)
 

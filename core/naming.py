@@ -3,7 +3,7 @@
 界面只负责收参数，真正的命名都在这里：
 
 - 模板：``{name}_{n}`` 这样的占位符
-- 表格名单：CSV / TSV / TXT / XLSX 里取一列
+- 表格名单：CSV / TSV / TXT / Excel / Word 里取一列
 - 查找替换（可正则）
 - 前缀 / 后缀
 - 清理非法字符、限长、同批次与磁盘上的重名去重
@@ -16,6 +16,9 @@ import datetime
 import io
 import os
 import re
+import shutil
+import tempfile
+import zipfile
 
 #: 默认命名：原文件名 + 序号
 DEFAULT_TEMPLATE = '{name}_{n}'
@@ -46,8 +49,19 @@ TOKENS = (
 
 _TOKEN_NAMES = {name.strip('{}') for name, _ in TOKENS}
 
-#: 表格文件支持的类型
-TABLE_EXTS = ('.csv', '.tsv', '.txt', '.xlsx', '.xlsm')
+#: 表格文件支持的类型。
+#: 后缀只是给文件选择框用的，真正读的时候按**文件内容**判断 ——
+#: 现实里到处是「后缀 .xlsx、内容其实是旧版 .xls」的文件。
+TABLE_EXTS = ('.csv', '.tsv', '.txt',
+              '.xlsx', '.xlsm', '.xls',
+              '.docx', '.doc')
+
+#: OOXML 里的关键部件
+_XLSX_PART = 'xl/workbook.xml'
+_DOCX_PART = 'word/document.xml'
+
+#: OLE2（旧版 Office 复合文档）的文件头
+_OLE_MAGIC = b'\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1'
 
 #: 列表头名字的默认值（表格里第一行不是表头时，界面上用「第 1 列」）
 MAX_STEM = 100
@@ -67,11 +81,13 @@ class NamingError(ValueError):
 class TableData:
     """读出来的表格：全部是字符串，空行已经去掉。"""
 
-    def __init__(self, path, rows, sheet='', sheets=()):
+    def __init__(self, path, rows, sheet='', sheets=(), kind=''):
         self.path = path
         self.rows = rows
         self.sheet = sheet
         self.sheets = list(sheets)
+        # excel / word / text：界面上的「工作表/表格」措辞不一样
+        self.kind = kind
 
     @property
     def headers(self):
@@ -96,7 +112,15 @@ class TableData:
 
 
 def _decode(raw):
-    """按 utf-8 → GB18030 的顺序解码（政务/工资表常见 GBK）。"""
+    """按 utf-8 → GB18030 的顺序解码（政务/工资表常见 GBK）。
+
+    Windows 记事本另存的 UTF-16 文本也有 BOM，先认它。
+    """
+    if raw.startswith((b'\xff\xfe', b'\xfe\xff')):
+        try:
+            return raw.decode('utf-16')
+        except UnicodeDecodeError:
+            pass
     for encoding in ('utf-8-sig', 'gb18030'):
         try:
             return raw.decode(encoding)
@@ -134,6 +158,20 @@ def _read_text_table(path):
     return _rows_from_text(text, delimiter)
 
 
+def _cell_text(value):
+    """把单元格的值转成字符串（Excel 的数字 1.0 不要变成「1.0」）。"""
+    if value is None:
+        return ''
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
+    if isinstance(value, (datetime.datetime, datetime.date)):
+        if isinstance(value, datetime.datetime) and not (
+                value.hour or value.minute or value.second):
+            return value.strftime('%Y-%m-%d')
+        return value.strftime('%Y-%m-%d %H:%M')
+    return str(value).strip()
+
+
 def _read_xlsx(path, sheet=None):
     try:
         import openpyxl
@@ -155,8 +193,7 @@ def _read_xlsx(path, sheet=None):
             sheet = sheets[0]
         rows = []
         for row in worksheet.iter_rows(values_only=True):
-            cells = ['' if value is None else str(value).strip()
-                     for value in row]
+            cells = [_cell_text(value) for value in row]
             if any(cells):
                 rows.append(cells)
         return rows, sheet, sheets
@@ -164,29 +201,182 @@ def _read_xlsx(path, sheet=None):
         workbook.close()
 
 
+def _read_xls(path, sheet=None):
+    """旧版 .xls（BIFF）：xlrd 2.x 只支持这种格式，正好互补。"""
+    try:
+        import xlrd
+    except ImportError:
+        raise NamingError(
+            '读取 .xls 需要 xlrd。可以先另存为 .xlsx 或 CSV，'
+            '或者装上：sudo apt install python3-xlrd')
+    try:
+        workbook = xlrd.open_workbook(path, on_demand=True)
+    except Exception as exc:
+        raise NamingError('这个 Excel 打不开：{}'.format(exc))
+
+    try:
+        sheets = workbook.sheet_names()
+        if sheet and sheet in sheets:
+            worksheet = workbook.sheet_by_name(sheet)
+        else:
+            worksheet = workbook.sheet_by_index(0)
+            sheet = sheets[0]
+        rows = []
+        for index in range(worksheet.nrows):
+            cells = []
+            for cell in worksheet.row(index):
+                if cell.ctype == xlrd.XL_CELL_DATE:
+                    try:
+                        cells.append(xlrd.xldate_as_datetime(
+                            cell.value, workbook.datemode)
+                            .strftime('%Y-%m-%d'))
+                        continue
+                    except Exception:
+                        pass
+                if cell.ctype in (xlrd.XL_CELL_EMPTY, xlrd.XL_CELL_BLANK):
+                    cells.append('')
+                    continue
+                cells.append(_cell_text(cell.value))
+            if any(cells):
+                rows.append(cells)
+        return rows, sheet, sheets
+    finally:
+        workbook.release_resources()
+
+
+def _read_docx(path, table=None):
+    """Word 里的表格（没有表格时按「一行一个名字」读段落）。"""
+    try:
+        import docx
+    except ImportError:
+        raise NamingError(
+            '读取 Word 需要 python-docx。可以先另存为 CSV 再导入，'
+            '或者装上：sudo apt install python3-docx')
+    try:
+        document = docx.Document(path)
+    except Exception as exc:
+        raise NamingError('这个 Word 文档打不开：{}'.format(exc))
+
+    tables = list(document.tables)
+    if not tables:
+        rows = [[paragraph.text.strip()]
+                for paragraph in document.paragraphs
+                if paragraph.text.strip()]
+        if not rows:
+            raise NamingError('这个 Word 文档里没有文字')
+        return rows, '', []
+
+    sheets = ['表格 {}'.format(index + 1) for index in range(len(tables))]
+    if table and table in sheets:
+        index = sheets.index(table)
+    else:
+        index = 0
+    rows = []
+    for row in tables[index].rows:
+        cells = []
+        for cell in row.cells:
+            text = ' '.join(line.strip()
+                            for line in cell.text.splitlines()
+                            if line.strip())
+            cells.append(text)
+        if any(cells):
+            rows.append(cells)
+    return rows, sheets[index], sheets
+
+
+def _read_doc(path, sheet=None):
+    """旧版 .doc：借 WPS / LibreOffice 另存为 .docx 再读。
+
+    .doc 是二进制格式，自己不解析；本机的转换后端本来就依赖 WPS，
+    直接在临时目录转一份，读完就删。
+    """
+    try:
+        from core.backends import get_backend
+        backend = get_backend()
+    except Exception as exc:
+        raise NamingError(
+            '读取 .doc 需要 WPS 或 LibreOffice：{}'.format(exc))
+
+    workdir = tempfile.mkdtemp(prefix='pdf_edit_doc_')
+    try:
+        docx_path = backend.convert_to_docx(path, workdir)
+        return _read_docx(docx_path, sheet)
+    except NamingError:
+        raise
+    except Exception as exc:
+        raise NamingError('这个 Word 文档打不开：{}'.format(exc))
+    finally:
+        shutil.rmtree(workdir, ignore_errors=True)
+
+
+def _file_kind(path):
+    """按文件头判断容器类型，不看扩展名。
+
+    WPS 另存为「Excel 97-2003」时经常还是 .xlsx 后缀，openpyxl 一读就报
+    「File contains no valid workbook part」——问题不在文件坏，而是信错了后缀。
+    """
+    with open(path, 'rb') as handle:
+        head = handle.read(8)
+    if head.startswith(b'PK\x03\x04'):
+        return 'zip'
+    if head.startswith(_OLE_MAGIC):
+        return 'ole'
+    return 'text'
+
+
+def _zip_parts(path):
+    try:
+        with zipfile.ZipFile(path) as archive:
+            return set(archive.namelist())
+    except (zipfile.BadZipFile, OSError) as exc:
+        raise NamingError('这个文件不是有效的 Excel / Word 文档：{}'.format(exc))
+
+
 def read_table(path, sheet=None):
     """读表格文件，返回 :class:`TableData`。
 
-    支持 CSV / TSV / TXT / XLSX。CSV 里哪一列是名单由调用方决定。
-    读不出来抛 :class:`NamingError`。
+    支持 CSV / TSV / TXT / Excel（xlsx、xls）/ Word（docx、doc）。
+    真正的格式按文件内容判断；读不出来抛 :class:`NamingError`。
     """
     ext = os.path.splitext(path)[1].lower()
     if ext not in TABLE_EXTS:
-        raise NamingError('表格只支持 {} 这些格式'.format(
+        raise NamingError('名单只支持 {} 这些格式'.format(
             '、'.join(e.lstrip('.').upper() for e in TABLE_EXTS)))
     if not os.path.isfile(path):
-        raise NamingError('找不到表格文件：{}'.format(path))
+        raise NamingError('找不到名单文件：{}'.format(path))
 
     try:
-        if ext in ('.xlsx', '.xlsm'):
-            rows, used_sheet, sheets = _read_xlsx(path, sheet)
-            return TableData(path, rows, used_sheet, sheets)
+        kind = _file_kind(path)
+        if kind == 'zip':
+            parts = _zip_parts(path)
+            if _XLSX_PART in parts:
+                rows, used_sheet, sheets = _read_xlsx(path, sheet)
+                return TableData(path, rows, used_sheet, sheets, 'excel')
+            if _DOCX_PART in parts:
+                rows, used_sheet, sheets = _read_docx(path, sheet)
+                return TableData(path, rows, used_sheet, sheets, 'word')
+            raise NamingError(
+                '这个文件既不是 Excel 也不是 Word（可能是网页/压缩包改名）')
+        if kind == 'ole':
+            # 旧版 Excel 或 Word；也可能是加密后的 OOXML
+            try:
+                rows, used_sheet, sheets = _read_xls(path, sheet)
+                return TableData(path, rows, used_sheet, sheets, 'excel')
+            except NamingError as excel_error:
+                try:
+                    rows, used_sheet, sheets = _read_doc(path, sheet)
+                    return TableData(path, rows, used_sheet, sheets, 'word')
+                except NamingError as word_error:
+                    raise NamingError(
+                        '这个文件打不开，可能已加密（需要密码）或不是 '
+                        'Excel / Word 文档：{}／{}'.format(
+                            excel_error, word_error))
         rows = _read_text_table(path)
     except OSError as exc:
         raise NamingError('表格读不出来：{}'.format(exc))
     if not rows:
         raise NamingError('表格是空的')
-    return TableData(path, rows)
+    return TableData(path, rows, kind='text')
 
 
 # --------------------------------------------------------------------------

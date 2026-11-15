@@ -53,8 +53,9 @@
     - 原文件名 + 序号（默认）：`报告_01.pdf`、`报告_02.pdf` …
     - 自定义模板：`{name}` `{n}` `{total}` `{page}` `{range}` `{date}` 等，
       序号可设起始 / 步长 / 补零位数，还能加统一的前缀、后缀
-    - **表格名单**：从 CSV / TXT / Excel 里取一列当文件名（自动认 GBK，
-      Excel 可选工作表与列；名单不够时其余按模板命名）
+    - **表格名单**：从 CSV / TXT / Excel / Word 里取一列当文件名（自动认 GBK，
+      xls/xlsx、doc/docx 都行，格式按文件内容判断而不是看后缀；Excel 可选
+      工作表，Word 可选第几个表格。名单不够时其余按模板命名）
   - 支持查找替换（可正则）、大小写转换；非法字符、超长名字、同目录重名（自动加 `(2)`）都处理好了
 - 🖱️ **缩略图多选提取**（`Ctrl+点击` 加选、`Shift+点击` 连选、`Esc` 收起）
   - 右键 →「提取所选 N 页为新文件…」：选中的页按顺序合成一个新 PDF，
@@ -250,7 +251,7 @@ pdf-editor-assistant/
 ├── main.py              # 程序入口（--print 直接开批量打印）
 ├── install.sh           # 一键安装脚本
 ├── uninstall.sh         # 卸载脚本
-├── requirements.txt     # Python 依赖（PyMuPDF / Pillow / openpyxl）
+├── requirements.txt     # Python 依赖（PyMuPDF / Pillow / openpyxl / xlrd / python-docx）
 ├── requirements-wps.txt # 可选：WPS 后端依赖
 ├── wheels/             # 随应用发布的预编译包（arm64 的 pywpsrpc）
 ├── core/                # 与界面无关
