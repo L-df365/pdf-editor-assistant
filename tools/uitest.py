@@ -2038,6 +2038,96 @@ def run(app):
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 
+    @step
+    def s26_large_document():
+        """超大 PDF：打开时不复制整份文件，缩略图分批建、按需渲染。"""
+        import pymupdf
+
+        from core.pdf_document import PDFDocument
+        from gui.thumbnail_panel import ThumbnailPanel
+
+        # 1) 打开只读文档不再整份写快照（237MB 文件打开时复制一遍会卡死）
+        probe = PDFDocument()
+        probe.open(SMALL_PDF)
+        check('打开文档不写撤销快照',
+              probe.history._states == [], str(probe.history._states))
+        probe.rotate_page(0, 90)
+        check('第一次修改前才拍快照',
+              len(probe.history._states) == 2 and probe.history.can_undo,
+              str(len(probe.history._states)))
+        probe.undo()
+        check('改成延迟快照后撤销仍然有效', probe.history.can_redo)
+        probe.dispose()
+
+        # 2) 300 页文档：卡片分批建，缩略图先画视口里的
+        large = os.path.join(FIXTURES, 'large.pdf')
+        if not os.path.isfile(large):
+            source = pymupdf.open()
+            for index in range(300):
+                page = source.new_page(width=595, height=842)
+                page.insert_text((72, 72), 'Page {}'.format(index + 1),
+                                 fontsize=12)
+            source.save(large)
+            source.close()
+
+        big = PDFDocument()
+        big.open(large)
+        panel = ThumbnailPanel(app.root)
+        panel.frame.place(x=0, y=0, width=320, height=760)
+        app.root.update()
+        try:
+            panel.load_document(big)
+            check('大文档先只建第一批卡片',
+                  len(panel.cards) < big.page_count,
+                  '{} / {}'.format(len(panel.cards), big.page_count))
+            check('缩略图不在打开时一次画完',
+                  len(panel._pending_thumbs) > 0
+                  and not panel._rendered,
+                  '{} pending / {} rendered'.format(
+                      len(panel._pending_thumbs), len(panel._rendered)))
+
+            # 先别让空闲队列跑，否则 update() 会把 300 页全排完；
+            # 建卡片的任务要留着，测的就是它分批建
+            for attr in ('_thumb_job', '_relayout_job'):
+                job = getattr(panel, attr)
+                if job is not None:
+                    panel.canvas.after_cancel(job)
+                    setattr(panel, attr, None)
+            schedule = panel._schedule_thumbs
+            panel._schedule_thumbs = lambda: None
+
+            def built():
+                return len(panel.cards) >= big.page_count
+
+            deadline = time.time() + 8
+            while not built() and time.time() < deadline:
+                app.root.update()
+                time.sleep(0.02)
+            check('剩余的卡片在空闲时分批建完',
+                  len(panel.cards) == big.page_count,
+                  '{} / {}'.format(len(panel.cards), big.page_count))
+            panel._schedule_thumbs = schedule
+            check('卡片建完也没有把所有缩略图都画掉',
+                  len(panel._rendered) < big.page_count,
+                  '{} / {}'.format(len(panel._rendered), big.page_count))
+
+            # 只跑一批：视口里的先画
+            panel._pump_thumbs()
+            if panel._thumb_job is not None:
+                panel._cancel_jobs()
+            check('视口里的页优先画出来',
+                  panel._rendered.get(0) == panel._sizes.get(0),
+                  '{} / {}'.format(panel._rendered.get(0),
+                                   panel._sizes.get(0)))
+            check('一批只画视口附近，不会画完 300 张',
+                  len(panel._rendered) < 100,
+                  str(len(panel._rendered)))
+        finally:
+            panel._cancel_jobs()
+            panel.frame.destroy()
+            app.root.update()
+            big.dispose()
+
     def stepper():
         if not steps:
             print('\n===== 结果 =====')

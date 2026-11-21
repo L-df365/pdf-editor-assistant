@@ -1,3 +1,4 @@
+import time
 import tkinter as tk
 from tkinter import ttk
 
@@ -29,6 +30,14 @@ class ThumbnailPanel:
     RAIL_ZOOM_MAX = 250
     RAIL_ZOOM_STEP = 10
 
+    #: 一次建多少张卡片。几百页的 PDF 一口气建几千个 Tk 控件会把界面卡住，
+    #: 分批建、渲染缩略图也放到空闲时做，打开大文件才不至于像死机。
+    BUILD_BATCH = 120
+    #: 页数超过这个值才分批建卡片（小文件一次建完，逻辑更简单）
+    CHUNK_ABOVE = 240
+    #: 每批缩略图最多渲染多久（秒），到点就让出主循环
+    THUMB_BUDGET = 0.05
+
 
     def __init__(self, parent, on_select=None, on_reorder=None,
                  on_delete=None, on_rotate=None, on_insert_after=None,
@@ -52,8 +61,16 @@ class ThumbnailPanel:
                            'target': None}
         self._drop_line = None
         self._cols = 1
-        self._sizes = {}
+        self._sizes = {}          # page → 期望尺寸（测试/布局用）
+        self._rendered = {}       # page → 已渲染尺寸
+        self._page_sizes = {}     # page → (宽, 高)，避免反复 load_page
+        self._pending_thumbs = {} # page → 尺寸（待渲染）
+        self._thumb_job = None
+        self._build_job = None
         self._relayout_job = None
+        self._pending_scroll = None
+        # 占位用的 1×1 透明图：有 image 时 Label 的 width/height 才按像素算
+        self._blank_photo = tk.PhotoImage(width=1, height=1)
         self._auto = True      # 自适应：缩略图跟着窗口宽度走
         self._zoom = 1.0       # 手动缩放倍率
 
@@ -81,7 +98,7 @@ class ThumbnailPanel:
         self.inner.bind('<Configure>', self._on_inner_configure)
         self.canvas.create_window((0, 0), window=self.inner, anchor='nw',
                                   tags='inner')
-        self.canvas.configure(yscrollcommand=self.scrollbar.set,
+        self.canvas.configure(yscrollcommand=self._on_yscroll,
                               xscrollcommand=self.hscrollbar.set)
 
         # 用 grid：滚动条的位置是确定的，反复显示/隐藏才不会把画布挤歪
@@ -115,6 +132,11 @@ class ThumbnailPanel:
     def pack(self, **kwargs):
         self.frame.pack(**kwargs)
 
+    def _on_yscroll(self, first, last):
+        """滚动时先更新滚动条，再按视口优先补画缩略图。"""
+        self.scrollbar.set(first, last)
+        self._schedule_thumbs()
+
     def _on_inner_configure(self, event):
         self._center_inner()
         self.canvas.configure(scrollregion=self.canvas.bbox('all'))
@@ -133,7 +155,7 @@ class ThumbnailPanel:
                                    before=self.canvas)
         elif self.scrollbar.winfo_ismapped():
             self.scrollbar.pack_forget()
-        self.canvas.configure(yscrollcommand=self.scrollbar.set)
+        self.canvas.configure(yscrollcommand=self._on_yscroll)
 
     def _on_canvas_resize(self, event):
         self._schedule_relayout()
@@ -233,15 +255,14 @@ class ThumbnailPanel:
             # 放大到放不下时才需要横向滚动条（按算出来的宽度判断，
             # 不去量控件宽度 —— 那时候布局还没算完，量出来是旧值）
             self._need_hscroll = card_w > usable
-        changed = cols != self._cols
         self._cols = cols
 
         for i, card in enumerate(self.cards):
             page = card['page']
             size = self._thumb_size(page, available, cap=self._auto)
-            if changed or self._sizes.get(page) != size:
+            if self._sizes.get(page) != size:
                 self._sizes[page] = size
-                self._render_thumb(card, size)
+                self._queue_thumb(page, size)
             row, col = divmod(i, cols)
             card['frame'].grid(row=row, column=col, sticky='w',
                                padx=(4 if col == 0 else 0),
@@ -249,6 +270,7 @@ class ThumbnailPanel:
         self._center_inner()
         self._sync_scrollbar()
         self._sync_hscrollbar()
+        self._schedule_thumbs()
         # 卡片尺寸是网格算完才定的，等空闲再核一次横向滚动条
         self.canvas.after_idle(self._sync_hscrollbar)
 
@@ -263,6 +285,20 @@ class ThumbnailPanel:
             return
         self.canvas.coords('inner', max(0, (canvas_w - inner_w) // 2), 0)
 
+    def _page_size(self, page):
+        """页面尺寸（缓存）：滚动时不用为每一页反复 load_page。"""
+        size = self._page_sizes.get(page)
+        if size is not None:
+            return size
+        try:
+            size = self.doc.get_page_size(page)
+        except Exception:
+            size = (612.0, 792.0)
+        if not size[0] or not size[1]:
+            size = (612.0, 792.0)
+        self._page_sizes[page] = size
+        return size
+
     def _thumb_size(self, page, available, cap=True):
         """缩略图尺寸：宽度由列宽决定，高度按页面比例跟着走。
 
@@ -270,10 +306,7 @@ class ThumbnailPanel:
         右边就空一块 —— 现在宽度说了算，只留一个高度上限兜底。
         手动缩放时不套这个上限（否则放大两倍只涨一点点）。
         """
-        try:
-            page_w, page_h = self.doc.get_page_size(page)
-        except Exception:
-            page_w, page_h = 612.0, 792.0
+        page_w, page_h = self._page_size(page)
         if page_w <= 0 or page_h <= 0:
             page_w, page_h = 612.0, 792.0
         # 减掉页码列和卡片内边距，剩下的都给缩略图
@@ -284,6 +317,7 @@ class ThumbnailPanel:
         return max(40, int(min(budget, by_height)))
 
     def _render_thumb(self, card, target_width):
+        """渲染一张缩略图，成功返回 True。"""
         from PIL import Image, ImageTk
         page = card['page']
         try:
@@ -291,9 +325,82 @@ class ThumbnailPanel:
             img = Image.frombytes('RGB', [pix.width, pix.height], pix.samples)
             photo = ImageTk.PhotoImage(img)
         except Exception:
-            return
-        card['image'].configure(image=photo)
+            return False
+        card['image'].configure(image=photo, width=pix.width,
+                                height=pix.height)
         card['image'].image = photo
+        return True
+
+    def _queue_thumb(self, page, size):
+        self._pending_thumbs[page] = size
+        if page >= len(self.cards):
+            return
+        # 先把标签占成目标尺寸，缩略图稍后再画：布局不用等渲染，
+        # 拉宽轨道时不会先按旧尺寸排一遍再跳一下。
+        page_w, page_h = self._page_size(page)
+        height = int(size * page_h / page_w) if page_w else size
+        label = self.cards[page]['image']
+        label.configure(image=self._blank_photo, width=size,
+                        height=max(height, 1))
+        label.image = self._blank_photo
+
+    def _schedule_thumbs(self):
+        """空闲时渲染缩略图（视口里的先画）。"""
+        if self._thumb_job is not None or not self._pending_thumbs:
+            return
+        if not self.doc or not self.doc.doc:
+            return
+        self._thumb_job = self.canvas.after(1, self._pump_thumbs)
+
+    def _distance_to_view(self, page, top, bottom):
+        """这一页离当前视口多远（视口内为 0），用来排渲染顺序。"""
+        if page >= len(self.cards):
+            return float(page)
+        frame = self.cards[page]['frame']
+        if not frame.winfo_ismapped() or frame.winfo_height() <= 1:
+            # 布局还没算完（刚打开时所有卡片 y 都是 0）：
+            # 按滚动比例估一下当前页，先画它附近，别一口气画几十页
+            try:
+                fraction = self.canvas.yview()[0]
+            except Exception:
+                fraction = 0.0
+            center = fraction * max(len(self.cards) - 1, 0)
+            return abs(page - center) * 200.0
+        y = frame.winfo_y()
+        height = max(frame.winfo_height(), 1)
+        if y + height < top:
+            return top - (y + height)
+        if y > bottom:
+            return y - bottom
+        return 0
+
+    def _pump_thumbs(self):
+        self._thumb_job = None
+        if not self.doc or not self.doc.doc:
+            self._pending_thumbs.clear()
+            return
+        height = max(self.canvas.winfo_height(), 1)
+        top = self.canvas.canvasy(0)
+        bottom = top + height
+        # 只画视口上下各两屏：615 页全画一遍要十来秒，
+        # 滚到哪儿画到哪儿，CPU 不会因为打开大文件一直满着。
+        margin = height * 2
+        candidates = [
+            (self._distance_to_view(page, top, bottom), page)
+            for page in self._pending_thumbs
+        ]
+        candidates = sorted(item for item in candidates if item[0] <= margin)
+        deadline = time.time() + self.THUMB_BUDGET
+        while candidates and time.time() < deadline:
+            _, page = candidates.pop(0)
+            size = self._pending_thumbs.pop(page, None)
+            if size is None or page >= len(self.cards):
+                continue
+            if self._render_thumb(self.cards[page], size):
+                self._rendered[page] = size
+        # 本屏还没画完才继续；剩下的等滚动进视口再画
+        if candidates:
+            self._thumb_job = self.canvas.after(1, self._pump_thumbs)
 
     # ------------------------------------------------------------------
     # 内容
@@ -303,11 +410,28 @@ class ThumbnailPanel:
         self.doc = pdf_doc
         self._build_thumbnails()
 
-    def _build_thumbnails(self):
+    def _cancel_jobs(self):
+        for attr in ('_thumb_job', '_build_job', '_relayout_job'):
+            job = getattr(self, attr)
+            if job is not None:
+                try:
+                    self.canvas.after_cancel(job)
+                except tk.TclError:
+                    pass
+                setattr(self, attr, None)
+
+    def _build_thumbnails(self, keep=None):
+        self._cancel_jobs()
         for w in self.inner.winfo_children():
             w.destroy()
         self.cards.clear()
         self._sizes.clear()
+        self._rendered.clear()
+        self._page_sizes.clear()
+        self._pending_thumbs.clear()
+        self._pending_scroll = None
+        # 占位用的 1×1 透明图：有 image 时 Label 的 width/height 才按像素算
+        self._blank_photo = tk.PhotoImage(width=1, height=1)
         self.selected = None
         self.selection = set()
         self._anchor = None
@@ -319,9 +443,36 @@ class ThumbnailPanel:
             return
 
         self.hint.place_forget()
-        for i in range(self.doc.page_count):
+        if keep is not None and 0 <= keep < self.doc.page_count:
+            self.selected = keep
+            self.selection = {keep}
+        total = self.doc.page_count
+        step = self.BUILD_BATCH if total > self.CHUNK_ABOVE else total
+        self._build_cards(0, step)
+
+    def _build_cards(self, start, step):
+        self._build_job = None
+        if not self.doc or not self.doc.doc:
+            return
+        total = self.doc.page_count
+        stop = min(total, start + step)
+        for i in range(start, stop):
             self._add_card(i)
         self._relayout()
+        if stop < total:
+            self._build_job = self.canvas.after(
+                1, self._build_cards, stop, step)
+        else:
+            self._apply_pending_scroll()
+
+    def _apply_pending_scroll(self):
+        target = self._pending_scroll
+        if target is None:
+            return
+        page, center = target
+        if page < len(self.cards):
+            self._pending_scroll = None
+            self.scroll_to_page(page, center=center)
 
     def _add_card(self, page_num):
         # 圆角卡片（抗锯齿）
@@ -356,6 +507,11 @@ class ThumbnailPanel:
                         lambda e, p=page_num: self._on_release(e, p))
             widget.bind('<Button-3>',
                         lambda e, p=page_num: self._show_menu(e, p))
+
+        if page_num == self.selected:
+            self._paint_card(card, True)
+        elif page_num in self.selection:
+            self._paint_card(card, False, secondary=True)
 
     # ------------------------------------------------------------------
     # 交互
@@ -544,13 +700,19 @@ class ThumbnailPanel:
         """全选（右键菜单里也有，键盘上 Ctrl+A 走这里）。"""
         if not self.cards or self.selected is None:
             return
-        self._set_selection(range(len(self.cards)), primary=self.selected)
+        total = (self.doc.page_count if self.doc and self.doc.doc
+                 else len(self.cards))
+        self._set_selection(range(total), primary=self.selected)
         if self.on_select:
             self.on_select(self.selected)
 
     def _set_selection(self, pages, primary=None):
+        # 分批建卡片时，后面几批还没建出来：按文档页数校验，
+        # 不然「全选」只能选到已经建好的那一批
+        limit = (self.doc.page_count if self.doc and self.doc.doc
+                 else len(self.cards))
         self.selection = {int(page) for page in pages
-                          if 0 <= int(page) < len(self.cards)}
+                          if 0 <= int(page) < limit}
         if primary is not None:
             self.selected = int(primary)
             self.selection.add(self.selected)
@@ -580,6 +742,10 @@ class ThumbnailPanel:
         默认居中：跟着右边预览滚动时，当前页的缩略图始终在眼前。
         内容不够一屏时不滚（滚了也没地方去）。
         """
+        if self.doc and self.doc.doc and page_num >= len(self.cards):
+            # 卡片还在分批建：等建到这一页再滚
+            self._pending_scroll = (page_num, center)
+            return
         if not (0 <= page_num < len(self.cards)):
             return
         card = self.cards[page_num]['frame']
@@ -624,19 +790,19 @@ class ThumbnailPanel:
         否则刷新后当前页的高亮就没了。
         """
         selected = self.selected
-        self._build_thumbnails()
-        if selected is not None and selected < len(self.cards):
-            # 页序变了，旧的页号不再对应同一页：只留当前页
-            self.selected = selected
-            self.selection = {selected}
-            self._paint_selection()
+        # 页序变了，旧的页号不再对应同一页：只留当前页
+        self._build_thumbnails(keep=selected)
 
     def refresh_page(self, page_num):
+        # 旋转会改变页面的宽高（横竖互换），缓存的尺寸要作废
+        self._page_sizes.pop(page_num, None)
         for card in self.cards:
             if card['page'] == page_num:
                 size = self._sizes.get(page_num)
                 if size:
-                    self._render_thumb(card, size)
+                    self._pending_thumbs.pop(page_num, None)
+                    if self._render_thumb(card, size):
+                        self._rendered[page_num] = size
                 break
 
     # ------------------------------------------------------------------

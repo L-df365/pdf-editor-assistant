@@ -115,6 +115,10 @@ class PDFDocument:
         #: 旋转 / 排序之后页图会变，光看页码是看不出来的。
         self._revision = 0
         self._serial = next(_SERIALS)
+        #: 页面尺寸缓存：瀑布流每次滚动都要算全文档的页高，
+        #: 几百页的 PDF 每次都 load_page 会明显拖慢滚动。
+        #: 值带上版本号，改动后自动失效。
+        self._size_cache = {}
         self.history = ChangeHistory(limit=5, temp_dir=self._temp_dir)
 
     @property
@@ -137,6 +141,7 @@ class PDFDocument:
 
     def _touch(self):
         self._revision += 1
+        self._size_cache.clear()
 
     def open(self, filepath):
         self.close()
@@ -146,7 +151,9 @@ class PDFDocument:
         self._modified = False
         self._touch()
         self.history.reset()
-        self.history.capture(self.doc)
+        # 注意：这里**不做快照**。几百 MB 的 PDF 在打开时整份复制一遍
+        # 要占掉好几百 MB 磁盘和好几秒，打开大文件会像卡死。
+        # 第一次真正改动前再快照（见 _ensure_history_base）。
 
     def close(self):
         # 注意：不能写 `if self.doc:` —— 已关闭的文档 bool() 会抛
@@ -165,6 +172,15 @@ class PDFDocument:
         self.close()
         shutil.rmtree(self._temp_dir, ignore_errors=True)
 
+    def _ensure_history_base(self):
+        """第一次改动前记下原始状态（撤销用）。
+
+        打开时不拍快照：只读大文件不该付出复制整份 PDF 的代价。
+        真正要改之前再拍，这时用户已经在写操作了，慢一点可以接受。
+        """
+        if self.doc is not None:
+            self.history.capture(self.doc)
+
     def thumbnail_for_width(self, page_num, target_width):
         """按目标像素宽度渲染缩略图（避免固定缩放导致裁切）。"""
         page = self.doc.load_page(page_num)
@@ -174,14 +190,20 @@ class PDFDocument:
         return page.get_pixmap(matrix=mat, alpha=False)
 
     def get_page_size(self, page_num):
+        cached = self._size_cache.get(page_num)
+        if cached and cached[0] == self._revision:
+            return cached[1], cached[2]
         page = self.doc.load_page(page_num)
-        return page.rect.width, page.rect.height
+        width, height = page.rect.width, page.rect.height
+        self._size_cache[page_num] = (self._revision, width, height)
+        return width, height
 
     def insert_files(self, filepaths, position):
         """按给定顺序批量插入文件。
 
         单个文件失败不会回滚已插入的文件；返回逐个文件的结果摘要。
         """
+        self._ensure_history_base()
         results = []
         offset = position
         inserted = 0
@@ -212,6 +234,7 @@ class PDFDocument:
         return results
 
     def insert_file(self, filepath, position, record=True):
+        self._ensure_history_base()
         ext = os.path.splitext(filepath)[1].lower()
 
         if ext == '.pdf':
@@ -326,6 +349,7 @@ class PDFDocument:
             return
         if not 0 <= page_num < self.page_count:
             return
+        self._ensure_history_base()
         new_order = [
             i for i in range(self.page_count) if i != page_num
         ]
@@ -337,6 +361,7 @@ class PDFDocument:
             return
         if not 0 <= from_pos < self.page_count:
             return
+        self._ensure_history_base()
         pages = list(range(self.page_count))
         page = pages.pop(from_pos)
         pages.insert(max(0, min(to_pos, len(pages))), page)
@@ -346,6 +371,7 @@ class PDFDocument:
     def rotate_page(self, page_num, angle=90):
         if not 0 <= page_num < self.page_count:
             return
+        self._ensure_history_base()
         page = self.doc.load_page(page_num)
         current = page.rotation
         page.set_rotation((current + angle) % 360)
@@ -389,8 +415,10 @@ class PDFDocument:
         """把当前内存状态另存一份（打印用）。
 
         不碰文档自己的保存状态：不改 filepath，也不清"已修改"标记。
+        打印只读这份副本，不需要重压缩 / 清理垃圾对象 —— 几百 MB 的
+        PDF 做一遍 garbage+deflate 要好几秒，直接原样写更快。
         """
-        self.doc.save(path, garbage=4, deflate=True)
+        self.doc.save(path)
         return path
 
     def extract_pages(self, pages, path):
