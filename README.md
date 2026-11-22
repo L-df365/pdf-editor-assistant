@@ -71,8 +71,8 @@ per-file print settings.
   - Find & replace (regex), case conversion; illegal characters, over-long
     names and existing files (auto `(2)`) are handled for you
 - ⚡ **Large files stay usable**: opening a few-hundred-MB PDF no longer copies
-  the whole file up front or renders every page at once; thumbnails are built
-  in batches and drawn only around the viewport as you scroll
+  the whole file up front or renders every page at once; above 200 pages the
+  rail is virtualized, so only thumbnails around the viewport exist
 - 🖱️ **Multi-select on thumbnails, extract the selection**
   (`Ctrl+click` to toggle, `Shift+click` for a range, `Esc` to collapse)
   - Right-click → "Extract N selected pages to a new file…": writes the

@@ -37,6 +37,10 @@ class ThumbnailPanel:
     CHUNK_ABOVE = 240
     #: 每批缩略图最多渲染多久（秒），到点就让出主循环
     THUMB_BUDGET = 0.05
+    #: 超过这么多页就走“虚拟列表”：只保留视口附近的卡片控件。
+    #: 615 页 × 每个卡片 3 个原生控件 + 一张圆角底图，光建控件就要
+    #: 好几秒、占几百 MB；滚动时 Tk 重排这一大坨还会整段卡住。
+    VIRTUAL_ABOVE = 200
 
 
     def __init__(self, parent, on_select=None, on_reorder=None,
@@ -71,6 +75,13 @@ class ThumbnailPanel:
         self._pending_scroll = None
         # 占位用的 1×1 透明图：有 image 时 Label 的 width/height 才按像素算
         self._blank_photo = tk.PhotoImage(width=1, height=1)
+        # 大文档虚拟列表：页面位置预先算好，只物化视口附近的卡片
+        self._virtual = False
+        self._layout = {}         # page → {x, y, w, h, tw, col}
+        self._materialized = {}   # page → 卡片控件
+        self._pool = []           # 回收的卡片控件（换页不重建）
+        self._content_w = 1
+        self._content_h = 1
         self._auto = True      # 自适应：缩略图跟着窗口宽度走
         self._zoom = 1.0       # 手动缩放倍率
 
@@ -135,6 +146,10 @@ class ThumbnailPanel:
     def _on_yscroll(self, first, last):
         """滚动时先更新滚动条，再按视口优先补画缩略图。"""
         self.scrollbar.set(first, last)
+        if self._virtual:
+            # 大文档：把离开视口的卡片收起来，只物化新的，
+            # 控件数量始终是一屏左右，滚动不会被上千个控件拖住
+            self._sync_window()
         self._schedule_thumbs()
 
     def _on_inner_configure(self, event):
@@ -231,6 +246,9 @@ class ThumbnailPanel:
         self._relayout_job = None
         if not self.doc or not self.doc.doc:
             return
+        if self._virtual:
+            self._virtual_relayout()
+            return
         width = self.canvas.winfo_width()
         if width < 120:
             # 画布还没布局好，等下一次 <Configure> 再排
@@ -276,6 +294,10 @@ class ThumbnailPanel:
 
     def _center_inner(self):
         """单列时把整列内容居中：右边空一大块会显得没做完。"""
+        if self._virtual:
+            # 虚拟列表的 x 已经带好左右留白，再居中会偏
+            self.canvas.coords('inner', 0, 0)
+            return
         if self._cols != 1:
             self.canvas.coords('inner', 0, 0)
             return
@@ -339,6 +361,8 @@ class ThumbnailPanel:
         # 拉宽轨道时不会先按旧尺寸排一遍再跳一下。
         page_w, page_h = self._page_size(page)
         height = int(size * page_h / page_w) if page_w else size
+        if self._virtual and page not in self._materialized:
+            return
         label = self.cards[page]['image']
         label.configure(image=self._blank_photo, width=size,
                         height=max(height, 1))
@@ -356,6 +380,15 @@ class ThumbnailPanel:
         """这一页离当前视口多远（视口内为 0），用来排渲染顺序。"""
         if page >= len(self.cards):
             return float(page)
+        if self._virtual:
+            box = self._layout.get(page)
+            if box is None:
+                return float(page)
+            if box['y'] + box['h'] < top:
+                return top - (box['y'] + box['h'])
+            if box['y'] > bottom:
+                return box['y'] - bottom
+            return 0
         frame = self.cards[page]['frame']
         if not frame.winfo_ismapped() or frame.winfo_height() <= 1:
             # 布局还没算完（刚打开时所有卡片 y 都是 0）：
@@ -396,7 +429,11 @@ class ThumbnailPanel:
             size = self._pending_thumbs.pop(page, None)
             if size is None or page >= len(self.cards):
                 continue
-            if self._render_thumb(self.cards[page], size):
+            if self._virtual:
+                card = self._materialized.get(page)
+            else:
+                card = self.cards[page]
+            if card is not None and self._render_thumb(card, size):
                 self._rendered[page] = size
         # 本屏还没画完才继续；剩下的等滚动进视口再画
         if candidates:
@@ -430,8 +467,12 @@ class ThumbnailPanel:
         self._page_sizes.clear()
         self._pending_thumbs.clear()
         self._pending_scroll = None
-        # 占位用的 1×1 透明图：有 image 时 Label 的 width/height 才按像素算
-        self._blank_photo = tk.PhotoImage(width=1, height=1)
+        self._virtual = False
+        self._layout = {}
+        self._materialized = {}
+        self._pool = []
+        self._content_w = 1
+        self._content_h = 1
         self.selected = None
         self.selection = set()
         self._anchor = None
@@ -447,8 +488,16 @@ class ThumbnailPanel:
             self.selected = keep
             self.selection = {keep}
         total = self.doc.page_count
+        if total > self.VIRTUAL_ABOVE:
+            # 大文档不建几千个控件：先只留页面位置，卡片按视口现用现建
+            self._virtual = True
+            self._build_virtual()
+            return
         step = self.BUILD_BATCH if total > self.CHUNK_ABOVE else total
         self._build_cards(0, step)
+        # 上一个文档停在底部时新文档会沿用滚动位置，先渲染末尾几页，
+        # 看起来就像「从最后几页开始加载」。
+        self.canvas.yview_moveto(0)
 
     def _build_cards(self, start, step):
         self._build_job = None
@@ -475,6 +524,14 @@ class ThumbnailPanel:
             self.scroll_to_page(page, center=center)
 
     def _add_card(self, page_num):
+        card = self._make_card(page_num)
+        self.cards.append(card)
+        if page_num == self.selected:
+            self._paint_card(card, True)
+        elif page_num in self.selection:
+            self._paint_card(card, False, secondary=True)
+
+    def _make_card(self, page_num):
         # 圆角卡片（抗锯齿）
         frame = RoundedCard(self.inner, radius=5, fill=PAPER, outline=LINE,
                              shadow=False, bg=BG)
@@ -491,27 +548,198 @@ class ThumbnailPanel:
         image.pack(side='left', padx=(0, 4), pady=4)
 
         card = {'frame': frame, 'marker': marker, 'index': index,
-                'image': image, 'page': page_num}
-        self.cards.append(card)
+                'image': image, 'page': page_num, 'state': '', 'col': 0}
+        self._bind_card(card)
+        return card
 
-        for widget in (image, index):
+    def _bind_card(self, card):
+        """绑定事件。闭包里拿的是 card 本身，虚拟列表换页时 page 会变。"""
+        def page_of():
+            return card['page']
+
+        for widget in (card['image'], card['index']):
             widget.bind('<Button-4>',
                         lambda e: self.canvas.yview_scroll(-1, 'units'))
             widget.bind('<Button-5>',
                         lambda e: self.canvas.yview_scroll(1, 'units'))
             widget.bind('<ButtonPress-1>',
-                        lambda e, p=page_num: self._on_press(e, p))
+                        lambda e: self._on_press(e, page_of()))
             widget.bind('<B1-Motion>',
-                        lambda e, p=page_num: self._on_motion(e, p))
+                        lambda e: self._on_motion(e, page_of()))
             widget.bind('<ButtonRelease-1>',
-                        lambda e, p=page_num: self._on_release(e, p))
+                        lambda e: self._on_release(e, page_of()))
             widget.bind('<Button-3>',
-                        lambda e, p=page_num: self._show_menu(e, p))
+                        lambda e: self._show_menu(e, page_of()))
 
-        if page_num == self.selected:
+    # ------------------------------------------------------------------
+    # 大文档：虚拟列表
+    # ------------------------------------------------------------------
+
+    def _build_virtual(self):
+        """615 页那种大文档：只留每页的位置信息，不建控件。
+
+        实测 615 张卡片光控件就占两百多 MB，滚动时 Tk 反复重排
+        上千个子控件还会整段卡住（单次 1.7s 无响应）。
+        这里只物化视口上下各一屏，滚到哪儿建到哪儿。
+        """
+        total = self.doc.page_count
+        for i in range(total):
+            self.cards.append({'frame': None, 'marker': None, 'index': None,
+                               'image': None, 'page': i, 'state': '',
+                               'col': 0})
+        # 上一个文档可能停在底部：不清零的话新文档先排末尾几页，
+        # 看起来就像「先加载了最后几页」。
+        self.canvas.yview_moveto(0)
+        self._virtual_relayout()
+
+    def _virtual_relayout(self):
+        width = self.canvas.winfo_width()
+        if width < 120:
+            # 画布还没布局好，等 <Configure> 再来
+            self._schedule_relayout()
+            return
+        fraction = 0.0
+        try:
+            fraction = self.canvas.yview()[0]
+        except Exception:
+            pass
+        self._compute_layout(width)
+        self.inner.configure(width=self._content_w, height=self._content_h)
+        self.canvas.configure(
+            scrollregion=(0, 0, self._content_w, self._content_h))
+        self.canvas.yview_moveto(fraction)
+        self._sync_window()
+        self._sync_scrollbar()
+        self._sync_hscrollbar()
+        self._schedule_thumbs()
+        self.canvas.after_idle(self._sync_hscrollbar)
+
+    def _compute_layout(self, width):
+        """把每页摆在哪、多大一次算清（和网格布局同一套尺寸规则）。"""
+        usable = width - self.CARD_MARGIN * 2
+        auto_cols = self._column_count(usable)
+        auto_gutter = self.CARD_GAP * (auto_cols - 1)
+        auto_available = (usable - auto_gutter) / auto_cols
+        base_size = max(auto_available - self.INDEX_WIDTH - 12, 48)
+        if self._auto:
+            cols = auto_cols
+            available = auto_available
+            self._need_hscroll = False
+        else:
+            size = base_size * self._zoom
+            card_w = size + self.INDEX_WIDTH + 12
+            cols = max(1, int((usable + self.CARD_GAP) //
+                              (card_w + self.CARD_GAP)))
+            available = card_w
+            self._need_hscroll = card_w > usable
+        cols = max(1, min(cols, self.doc.page_count))
+        self._cols = cols
+
+        infos = {}
+        for page in range(self.doc.page_count):
+            tw = self._thumb_size(page, available, cap=self._auto)
+            page_w, page_h = self._page_size(page)
+            th = int(tw * page_h / page_w) if page_w else tw
+            infos[page] = (tw, tw + self.INDEX_WIDTH + 26, th + 16)
+            self._sizes[page] = tw
+
+        col_w = [0] * cols
+        for page, (_, w, _h) in infos.items():
+            col = page % cols
+            col_w[col] = max(col_w[col], w)
+        # 列位置按算出来的列宽（available）等距排，不按卡片实际宽度累加：
+        # 实际卡片比估算的略宽几个像素，累加会把最后一列挤出轨道。
+        left = self.CARD_MARGIN + 4
+        xs = [left + c * (available + self.CARD_GAP)
+              for c in range(cols)]
+
+        y = 4
+        layout = {}
+        for start in range(0, self.doc.page_count, cols):
+            pages = list(range(start, min(start + cols,
+                                          self.doc.page_count)))
+            row_h = max(infos[p][2] for p in pages)
+            for c, page in enumerate(pages):
+                _tw, w, h = infos[page]
+                layout[page] = {'x': xs[c], 'y': y, 'w': w, 'h': h,
+                                'tw': _tw, 'col': c}
+            y += row_h + 8
+        self._layout = layout
+        # 自适应永远不横向滚；手动放大到放不下时才让横向滚动条出来
+        self._content_w = (width if self._auto else
+                           max(width, xs[-1] + col_w[-1] +
+                               self.CARD_MARGIN))
+        self._need_hscroll = (not self._auto and
+                              self._content_w > width + 1)
+        self._content_h = y + 4
+
+    def _sync_window(self):
+        """按当前视口物化/回收卡片（视口上下各留一屏，滚动不闪）。"""
+        if not self._layout:
+            return
+        top = self.canvas.canvasy(0)
+        height = max(self.canvas.winfo_height(), 1)
+        margin = height
+        top -= margin
+        bottom = self.canvas.canvasy(0) + height + margin
+        wanted = set()
+        for page, box in self._layout.items():
+            if box['y'] + box['h'] >= top and box['y'] <= bottom:
+                wanted.add(page)
+        for page in [p for p in self._materialized if p not in wanted]:
+            self._release_page(page)
+        for page in sorted(wanted):
+            self._materialize_page(page)
+
+    def _materialize_page(self, page):
+        card = self._materialized.get(page)
+        if card is not None:
+            return card
+        if self._pool:
+            card = self._pool.pop()
+        else:
+            card = self._make_card(page)
+        card['page'] = page
+        card['state'] = ''
+        card['index'].configure(text='{:02d}'.format(page + 1),
+                                foreground=INK_2, font=font('num'))
+        box = self._layout[page]
+        card['col'] = box['col']
+        card['frame'].place(x=box['x'], y=box['y'])
+        self.cards[page] = card
+        self._materialized[page] = card
+        if page == self.selected:
             self._paint_card(card, True)
-        elif page_num in self.selection:
+        elif page in self.selection:
             self._paint_card(card, False, secondary=True)
+        else:
+            # 卡片是从别的页回收来的，颜色要刷回去
+            self._paint_card(card, False)
+        if self._rendered.get(page) != box['tw']:
+            self._queue_thumb(page, box['tw'])
+        return card
+
+    def _release_page(self, page):
+        card = self._materialized.pop(page)
+        card['frame'].place_forget()
+        card['image'].configure(image=self._blank_photo)
+        card['image'].image = self._blank_photo
+        self._rendered.pop(page, None)
+        self._pending_thumbs.pop(page, None)
+        stub = {'frame': None, 'marker': None, 'index': None, 'image': None,
+                'page': page, 'state': '', 'col': card['col']}
+        self.cards[page] = stub
+        self._pool.append(card)
+
+    def _card_column(self, card):
+        if self._virtual:
+            return card.get('col', 0)
+        return card['frame'].grid_info().get('column', 0)
+
+    def _visible_cards(self):
+        if self._virtual:
+            return list(self._materialized.values())
+        return self.cards
 
     # ------------------------------------------------------------------
     # 交互
@@ -593,10 +821,13 @@ class ThumbnailPanel:
         """指针落在哪一列（按卡片实际位置判断，不按画布坐标猜）。"""
         best = 0
         best_distance = None
-        for card in self.cards:
-            col = card['frame'].grid_info().get('column', 0)
-            left = card['frame'].winfo_x()
-            right = left + card['frame'].winfo_width()
+        for card in self._visible_cards():
+            frame = card['frame']
+            if frame is None:
+                continue
+            col = self._card_column(card)
+            left = frame.winfo_x()
+            right = left + frame.winfo_width()
             if left <= x <= right:
                 return col
             distance = min(abs(x - left), abs(x - right))
@@ -620,8 +851,9 @@ class ThumbnailPanel:
         py = self.canvas.canvasy(view_y) - oy
 
         col = self._column_at(px)
-        column = [card for card in self.cards
-                  if card['frame'].grid_info().get('column', 0) == col]
+        column = [card for card in self._visible_cards()
+                  if card['frame'] is not None
+                  and self._card_column(card) == col]
         column.sort(key=lambda card: card['frame'].winfo_y())
 
         insert_at = 0
@@ -723,6 +955,8 @@ class ThumbnailPanel:
     def _paint_selection(self):
         """按多选状态重画卡片：只动状态变了的，几百页也不会卡。"""
         for card in self.cards:
+            if card['frame'] is None:
+                continue
             page = card['page']
             if page == self.selected:
                 state = 'primary'
@@ -747,6 +981,21 @@ class ThumbnailPanel:
             self._pending_scroll = (page_num, center)
             return
         if not (0 <= page_num < len(self.cards)):
+            return
+        if self._virtual:
+            box = self._layout.get(page_num)
+            if box is None:
+                return
+            view_h = self.canvas.winfo_height()
+            total = self._content_h
+            if view_h <= 1 or total <= view_h:
+                return
+            if center:
+                target = box['y'] + box['h'] / 2 - view_h / 2
+            else:
+                target = box['y'] - box['h']
+            self.canvas.yview_moveto(max(0.0, min(1.0, target / float(total))))
+            self._sync_window()
             return
         card = self.cards[page_num]['frame']
         view_h = self.canvas.winfo_height()
@@ -796,6 +1045,12 @@ class ThumbnailPanel:
     def refresh_page(self, page_num):
         # 旋转会改变页面的宽高（横竖互换），缓存的尺寸要作废
         self._page_sizes.pop(page_num, None)
+        if self._virtual:
+            # 宽高变了整份布局都要重排；已渲染的这张也要重画
+            self._sizes.pop(page_num, None)
+            self._rendered.pop(page_num, None)
+            self._virtual_relayout()
+            return
         for card in self.cards:
             if card['page'] == page_num:
                 size = self._sizes.get(page_num)

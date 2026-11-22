@@ -2059,7 +2059,7 @@ def run(app):
         check('改成延迟快照后撤销仍然有效', probe.history.can_redo)
         probe.dispose()
 
-        # 2) 300 页文档：卡片分批建，缩略图先画视口里的
+        # 2) 300 页文档：走虚拟列表，只物化视口附近的卡片
         large = os.path.join(FIXTURES, 'large.pdf')
         if not os.path.isfile(large):
             source = pymupdf.open()
@@ -2076,42 +2076,24 @@ def run(app):
         panel.frame.place(x=0, y=0, width=320, height=760)
         app.root.update()
         try:
+            # 先把轨道滚到底：新文档不能从这个位置开始，否则先画末尾几页
+            panel.canvas.yview_moveto(1.0)
             panel.load_document(big)
-            check('大文档先只建第一批卡片',
-                  len(panel.cards) < big.page_count,
+            check('打开大文档时滚动位置回到顶部',
+                  panel.canvas.yview()[0] == 0,
+                  str(panel.canvas.yview()[0]))
+            check('大文档走虚拟列表，不建全部卡片',
+                  panel._virtual and len(panel.cards) == big.page_count,
                   '{} / {}'.format(len(panel.cards), big.page_count))
-            check('缩略图不在打开时一次画完',
-                  len(panel._pending_thumbs) > 0
-                  and not panel._rendered,
-                  '{} pending / {} rendered'.format(
-                      len(panel._pending_thumbs), len(panel._rendered)))
-
-            # 先别让空闲队列跑，否则 update() 会把 300 页全排完；
-            # 建卡片的任务要留着，测的就是它分批建
-            for attr in ('_thumb_job', '_relayout_job'):
-                job = getattr(panel, attr)
-                if job is not None:
-                    panel.canvas.after_cancel(job)
-                    setattr(panel, attr, None)
-            schedule = panel._schedule_thumbs
-            panel._schedule_thumbs = lambda: None
-
-            def built():
-                return len(panel.cards) >= big.page_count
-
-            deadline = time.time() + 8
-            while not built() and time.time() < deadline:
-                app.root.update()
-                time.sleep(0.02)
-            check('剩余的卡片在空闲时分批建完',
-                  len(panel.cards) == big.page_count,
-                  '{} / {}'.format(len(panel.cards), big.page_count))
-            panel._schedule_thumbs = schedule
-            check('卡片建完也没有把所有缩略图都画掉',
+            check('只物化视口附近的卡片',
+                  0 < len(panel._materialized) < 80,
+                  str(len(panel._materialized)))
+            check('打开时不会把所有缩略图都画掉',
                   len(panel._rendered) < big.page_count,
                   '{} / {}'.format(len(panel._rendered), big.page_count))
+            check('第一页已经物化',
+                  panel._materialized.get(0) is not None)
 
-            # 只跑一批：视口里的先画
             panel._pump_thumbs()
             if panel._thumb_job is not None:
                 panel._cancel_jobs()
@@ -2119,8 +2101,28 @@ def run(app):
                   panel._rendered.get(0) == panel._sizes.get(0),
                   '{} / {}'.format(panel._rendered.get(0),
                                    panel._sizes.get(0)))
-            check('一批只画视口附近，不会画完 300 张',
-                  len(panel._rendered) < 100,
+
+            # 拖滚动条跳到 250 页：控件只换一屏，不会越积越多
+            before = set(panel._materialized)
+            panel.canvas.yview_moveto(0.8)
+            panel._sync_window()
+            app.root.update()
+            check('滚动后旧的卡片被回收',
+                  len(before - set(panel._materialized)) > 0,
+                  '{} -> {}'.format(len(before),
+                                    len(panel._materialized)))
+            check('滚动后控件数量仍然有限',
+                  len(panel._materialized) < 80,
+                  str(len(panel._materialized)))
+            check('滚到的位置附近已经物化',
+                  min(panel._materialized) > 150,
+                  str(min(panel._materialized)))
+
+            panel._pump_thumbs()
+            if panel._thumb_job is not None:
+                panel._cancel_jobs()
+            check('只画滚动后视口附近的缩略图',
+                  len(panel._rendered) < 120,
                   str(len(panel._rendered)))
         finally:
             panel._cancel_jobs()
